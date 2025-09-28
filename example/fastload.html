@@ -1,0 +1,41 @@
+<!--
+ * @Author: Maicro-bao baorong@airia.cn
+ * @Date: 2022-10-19 13:08:08
+ * @LastEditors: Maicro-bao baorong@airia.cn
+ * @LastEditTime: 2025-09-28 16:08:10
+ * @FilePath: \TPano-develop\example\fastload.html
+ * @Description: 
+ * Copyright (c) 2025 by maicro, All Rights Reserved. 
+-->
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html;charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TPano 全景照片查看器</title>
+    <style>
+      * {
+        margin: 0;
+      }
+
+      #tp {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+    </style>
+  </head>
+
+  <body id="pano">
+    <!--直接通过标签tpano引入全景照片1.jpg，无需做其他任何处理，
+        但要注意设置标签的css，给出宽度和高度，tpano依照此高度自动生成照片大小-->
+    <tpano
+      id="tp"
+      src="http://172.16.50.217:10081/image_api/DJI_20250923160820_0001_V.jpg"
+    ></tpano>
+  </body>
+  <!--引入three.js-->
+  <script src="./three.js"></script>
+  <script src="../dist/tpano.js"></script>
+  <script src="../dist/fastloading.js"></script>
+</html>
