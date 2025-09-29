@@ -36,9 +36,6 @@ function TPano(d) {
   renderer.setPixelRatio(window.devicePixelRatio);
   el.append(renderer.domElement);
 
-  // 设置渲染顺序
-  renderer.sortObjects = true; // 启用对象排序
-
   //地理坐标原点（全景拍摄点）
   let geoOrigin = {
     longitude: d.geoReference?.longitude || 0,
@@ -205,12 +202,8 @@ function TPano(d) {
           camera.updateProjectionMatrix();
         }
         console.log(texture);
-        // 修改球体材质，确保不会遮挡热点
-        const sphereMaterial = new THREE.MeshBasicMaterial({
-          map: texture[i],
-          depthWrite: true, // 允许深度写入，但热点禁用深度写入
-        });
-        mesh.material = sphereMaterial;
+        material = new THREE.MeshBasicMaterial({ map: texture[i] });
+        mesh.material = material;
         cleanHotspot();
         if (d.hotspot != null) {
           initHotspot();

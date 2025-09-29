@@ -26,7 +26,7 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
         geoReference: {
           longitude: geoRef.longitude, // 东经增加0.01度
           latitude: geoRef.latitude, // 北纬增加0.01度
-          altitude: geoRef.altitude + 0.1, // 高度增加100米
+          altitude: geoRef.altitude + 1000, // 高度增加100米
         },
         imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
         jumpTo: "next-pano",
