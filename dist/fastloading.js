@@ -18,8 +18,8 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
     hotspot: [
       {
         source: "main",
-        lon: 1, // 相对经度角度
-        lat: 2, // 相对纬度角度
+        targetLon: 118.931944, // 使用绝对经度（比拍摄点经度大0.01）
+        targetLat: 32.028096, // 使用绝对纬度（比拍摄点纬度大0.01）
         altitude: 1,
         imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
         jumpTo: "next-pano",
