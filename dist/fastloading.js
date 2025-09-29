@@ -51,16 +51,16 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
       //   imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
       //   jumpTo: "中专",
       // },
-      {
-        source: "main",
-        geoReference: {
-          longitude: 118.936728,
-          latitude: 32.029724,
-          altitude: 10,
-        },
-        imgUrl: "http://172.16.50.217:10081/image_api/source.png",
-        jumpTo: "泉水公寓",
-      },
+      // {
+      //   source: "main",
+      //   geoReference: {
+      //     longitude: 118.936728,
+      //     latitude: 32.029724,
+      //     altitude: 10,
+      //   },
+      //   imgUrl: "http://172.16.50.217:10081/image_api/source.png",
+      //   jumpTo: "泉水公寓",
+      // },
     ],
     rotateAnimateController: false,
     MouseController: false,

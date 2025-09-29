@@ -67,14 +67,12 @@ function TPano(d) {
     const deltaLat = latRad - originLatRad;
 
     // 使用平面近似（适用于小范围）
-    // 经度方向：x轴正方向（东）
-    // 纬度方向：z轴正方向（北）
     // 高度方向：y轴正方向（上）
     const x = deltaLon * R * Math.cos(originLatRad);
     const z = deltaLat * R;
     const y = altitude - originAlt;
 
-    return new THREE.Vector3(-z, y, x);
+    return new THREE.Vector3(x, y, z);
   }
 
   //生成全景图片3D对象
