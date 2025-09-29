@@ -22,16 +22,63 @@ function TPano(d) {
     //pc端视角
     fov = 60;
   }
-  const camera = new THREE.PerspectiveCamera(fov, width / height, 0.1, 1000); //创建相机
-  //camera.lookAt(500, 0, 0);//视角矫正
+  const camera = new THREE.PerspectiveCamera(fov, width / height, 0.1, 1000);
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: true,
+    // 添加以下设置
+    depth: true,
+    stencil: false,
+    preserveDrawingBuffer: false,
   });
   renderer.setSize(width, height);
   renderer.setClearColor(0x272727, 1.0);
   renderer.setPixelRatio(window.devicePixelRatio);
   el.append(renderer.domElement);
+
+  // 设置渲染顺序
+  renderer.sortObjects = true; // 启用对象排序
+
+  //地理坐标原点（全景拍摄点）
+  let geoOrigin = {
+    longitude: d.geoReference?.longitude || 0,
+    latitude: d.geoReference?.latitude || 0,
+    altitude: d.geoReference?.altitude || 0,
+  };
+
+  /**
+   * 将地理坐标(经纬度,高度)转换为三维坐标(x,y,z)
+   */
+  function geoTo3D(
+    longitude,
+    latitude,
+    altitude,
+    originLon,
+    originLat,
+    originAlt
+  ) {
+    const R = 6371000; // 地球半径(米)
+
+    // 将经纬度转换为弧度
+    const lonRad = THREE.MathUtils.degToRad(longitude);
+    const latRad = THREE.MathUtils.degToRad(latitude);
+    const originLonRad = THREE.MathUtils.degToRad(originLon);
+    const originLatRad = THREE.MathUtils.degToRad(originLat);
+
+    // 计算相对于原点的偏移量
+    const deltaLon = lonRad - originLonRad;
+    const deltaLat = latRad - originLatRad;
+
+    // 使用平面近似（适用于小范围）
+    // 经度方向：x轴正方向（东）
+    // 纬度方向：z轴正方向（北）
+    // 高度方向：y轴正方向（上）
+    const x = deltaLon * R * Math.cos(originLatRad);
+    const z = deltaLat * R;
+    const y = altitude - originAlt;
+
+    return new THREE.Vector3(x, y, z);
+  }
 
   //生成全景图片3D对象
   const geometry = new THREE.SphereBufferGeometry(500, 60, 40);
@@ -41,7 +88,7 @@ function TPano(d) {
   var texture = Array();
   let loadTextureLoaderCount = 0;
   loadTextureLoader(loadTextureLoaderCount);
-  //用来加载全景照片
+
   function loadTextureLoader(i) {
     if (d.photo[i].type == "VIDEO") {
       el.insertAdjacentHTML(
@@ -56,31 +103,25 @@ function TPano(d) {
       let videoDom = document.getElementById(videoId);
       videoDom.play();
       texture[i] = new THREE.VideoTexture(videoDom);
-      //没有找到监听加载的办法，暂时使用延迟模拟回调
       setTimeout(() => {
         loadTextureLoaderEnd();
       }, 2000);
     } else {
       texture[i] = new THREE.TextureLoader().load(
         d.photo[i].url,
-        // onLoad回调
         function () {
           loadTextureLoaderEnd();
         },
-
-        // 目前暂不支持onProgress的回调
         function (e) {
           console.log(e);
         },
-
-        // onError回调
         function (err) {
           console.error("An error happened.");
         }
       );
     }
   }
-  //用来控制加载下一张全景照片
+
   var loadTextureMsg;
   function loadTextureLoaderEnd() {
     let i = loadTextureLoaderCount;
@@ -98,7 +139,6 @@ function TPano(d) {
       d.photoLoad(loadTextureMsg);
     }
     if (loadTextureLoaderCount == 0) {
-      //初始化加载第一张图片
       switchPhotoN(0);
     }
     if (loadTextureLoaderCount < d.photo.length - 1) {
@@ -106,11 +146,6 @@ function TPano(d) {
     }
   }
 
-  /**
-   * 切换全景照片
-   * @param int i 选择照片张数
-   * @return json status，正常返回OK，不正常返回ERROR；msg具体信息
-   */
   function switchPhotoN(i) {
     let response = {
       status: "ERROR",
@@ -118,9 +153,7 @@ function TPano(d) {
     };
 
     if (i < d.photo.length && i >= 0) {
-      //回调通知：注意全景图片换页事件开始，应该检查全景图片是否下载完毕，主要是用于做进度提示功能
       if (loadTextureMsg.all - loadTextureMsg.Leftover >= i + 1) {
-        //已加载完成，无需等待
         if (d.switchLoad != null) {
           d.switchLoad({
             loading: {
@@ -132,7 +165,6 @@ function TPano(d) {
         }
         switchGo();
       } else {
-        //未加载完成，请等待一秒后再尝试
         if (d.switchLoad != null) {
           d.switchLoad({
             loading: {
@@ -148,14 +180,12 @@ function TPano(d) {
       function switchGo() {
         let fov;
         if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
-          //手机端视角
           try {
             fov = d.photo[i].fov.phone;
           } catch (error) {
             fov = null;
           }
         } else {
-          //pc端视角
           try {
             fov = d.photo[i].fov.pc;
           } catch (error) {
@@ -167,18 +197,20 @@ function TPano(d) {
           camera.updateProjectionMatrix();
         } else {
           if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
-            //手机端视角
             fov = 90;
           } else {
-            //pc端视角
             fov = 60;
           }
           camera.fov = fov;
           camera.updateProjectionMatrix();
         }
         console.log(texture);
-        material = new THREE.MeshBasicMaterial({ map: texture[i] });
-        mesh.material = material;
+        // 修改球体材质，确保不会遮挡热点
+        const sphereMaterial = new THREE.MeshBasicMaterial({
+          map: texture[i],
+          depthWrite: true, // 允许深度写入，但热点禁用深度写入
+        });
+        mesh.material = sphereMaterial;
         cleanHotspot();
         if (d.hotspot != null) {
           initHotspot();
@@ -203,14 +235,37 @@ function TPano(d) {
       if (mesh.material.map.panoName == d.hotspot[j].source) {
         let map = new THREE.TextureLoader().load(d.hotspot[j].imgUrl);
         let material = new THREE.SpriteMaterial({ map: map });
-
         let sprite = new THREE.Sprite(material);
-        sprite.position.set(
-          d.hotspot[j].position.x * 0.9,
-          d.hotspot[j].position.y * 0.9,
-          d.hotspot[j].position.z * 0.9
-        );
+
+        // 处理地理坐标热点
+        if (d.hotspot[j].geoReference) {
+          const geoPos = d.hotspot[j].geoReference;
+          const threeDPos = geoTo3D(
+            geoPos.longitude,
+            geoPos.latitude,
+            geoPos.altitude,
+            geoOrigin.longitude,
+            geoOrigin.latitude,
+            geoOrigin.altitude
+          );
+
+          // 将三维坐标投影到球面上（半径为500的球体）
+          const direction = threeDPos.normalize();
+          const spherePos = direction.multiplyScalar(500);
+
+          sprite.position.copy(spherePos);
+        }
+        // 处理传统的三维坐标热点（向后兼容）
+        else if (d.hotspot[j].position) {
+          sprite.position.set(
+            d.hotspot[j].position.x * 0.9,
+            d.hotspot[j].position.y * 0.9,
+            d.hotspot[j].position.z * 0.9
+          );
+        }
+
         sprite.scale.set(30, 30, 1);
+
         for (let k = 0; k < d.photo.length; k++) {
           if (d.photo[k].name == d.hotspot[j].jumpTo) {
             sprite.jumpTo = k;
@@ -234,7 +289,7 @@ function TPano(d) {
     for (let i = 0; i < children.length; i++) {
       if (children[i].name == "hotspot") {
         scene.children.splice(i, 1);
-        i--; //从一个数组中去掉一个元素会使得后面的元素下标前移1，所以下一个遍历的元素下标也需要减一，避免漏网之鱼
+        i--;
       }
     }
   }
@@ -279,7 +334,7 @@ function TPano(d) {
   animate();
 
   //镜头自由旋转
-  let anglexoz = -90; //相机在xoz平面上的角度
+  let anglexoz = -90;
   var rotateAnimateController = d.rotateAnimateController;
   function rotateAnimate() {
     if (
@@ -293,10 +348,9 @@ function TPano(d) {
       let x = Math.cos((anglexoz * Math.PI) / 180) * 500;
       let z = Math.sin((anglexoz * Math.PI) / 180) * 500;
       camera.lookAt(x, 0, z);
-      //console.log(anglexoz);
     }
   }
-  setInterval(rotateAnimate, 1000 / 60); //60帧
+  setInterval(rotateAnimate, 1000 / 60);
 
   el.addEventListener("pointerdown", function () {
     if (d.MouseController) {
@@ -305,7 +359,7 @@ function TPano(d) {
   });
 
   //手机端多点触控
-  let mouseFovControllerSport = true; //用来开闭鼠标控制支持的，如果用户在进行放大手势，应该将鼠标视角控制锁定
+  let mouseFovControllerSport = true;
   function phoneController() {
     let oldL = 0;
     let x1, x2, y1, y2, l;
@@ -323,7 +377,7 @@ function TPano(d) {
           y2 = event.touches[1].clientY;
           oldL = Math.sqrt(
             Math.pow(Math.abs(x2 - x1), 2) + Math.pow(Math.abs(y2 - y1), 2)
-          ); //求两点间长度
+          );
         } else {
           mouseFovControllerSport = true;
         }
@@ -336,7 +390,7 @@ function TPano(d) {
         if (!d.MouseController) {
           return;
         }
-        event.preventDefault(); // prevent scrolling
+        event.preventDefault();
         event.stopPropagation();
         if (event.touches.length == 2) {
           x1 = event.touches[0].clientX;
@@ -346,9 +400,9 @@ function TPano(d) {
 
           l = Math.sqrt(
             Math.pow(Math.abs(x2 - x1), 2) + Math.pow(Math.abs(y2 - y1), 2)
-          ); //求两点间长度
+          );
 
-          let lAdd = l - oldL; //长度增量
+          let lAdd = l - oldL;
           oldL = l;
 
           console.log(lAdd);
@@ -363,7 +417,6 @@ function TPano(d) {
 
   //封装鼠标控制
   function mouseController() {
-    //初始化鼠标控制用变量
     let isUserInteracting = false,
       onPointerDownMouseX = 0,
       onPointerDownMouseY = 0,
@@ -374,20 +427,17 @@ function TPano(d) {
       phi = 0,
       theta = 0;
 
-    //鼠标控制视角、响应热点交互
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     function onMouseMove(event) {
       if (!d.MouseController) {
         return;
       }
-      // 将鼠标位置归一化为设备坐标。x 和 y 方向的取值范围是 (-1 to +1)
       mouse.x = (event.clientX / el.clientWidth) * 2 - 1;
       mouse.y = -(event.clientY / el.clientHeight) * 2 + 1;
       render();
     }
 
-    //鼠标按下到松开期间有没有移动，如果没有移动说明点击的是热点，否则是移动视角
     let clientX, clientY;
     el.addEventListener("pointerdown", function (event) {
       if (!d.MouseController) {
@@ -403,24 +453,19 @@ function TPano(d) {
       var distance = Math.sqrt(
         Math.pow(Math.abs(event.clientX - clientX), 2) +
           Math.pow(Math.abs(event.clientY - clientY), 2)
-      ); //鼠标按下到松开期间移动距离
+      );
       if (distance <= 10) {
-        //这是个容差设计，在手机端如果不给差值，很可能用户的点击和松开之间会有误差
         positionClick();
       }
     });
 
-    //获取点击坐标，拾取点击对象
     function positionClick() {
-      // 通过摄像机和鼠标位置更新射线
       raycaster.setFromCamera(mouse, camera);
-      // 计算物体和射线的交点
       const intersects = raycaster.intersectObjects(scene.children);
       for (let i = 0; i < intersects.length; i++) {
         if (d.debug == true) {
           console.log("点击坐标：", intersects[i].point);
         }
-        //检测点击热点是否跳转场地
         if (intersects[i].object.jumpTo != null && i == 0) {
           switchPhotoN(intersects[i].object.jumpTo);
           console.log(scene);
@@ -431,15 +476,14 @@ function TPano(d) {
     el.style.touchAction = "none";
     el.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("wheel", onDocumentMouseWheel);
-    //计算摄像机目前视角状态，保持当前状态，在当前状态上附加变化
-    lon = -1 * THREE.MathUtils.radToDeg(camera.rotation.y) - 90; //经度
-    lat = THREE.MathUtils.radToDeg(camera.rotation.x); //纬度
+
+    lon = -1 * THREE.MathUtils.radToDeg(camera.rotation.y) - 90;
+    lat = THREE.MathUtils.radToDeg(camera.rotation.x);
+
     function onPointerDown(event) {
       if (!d.MouseController) {
         return;
       }
-
-      //console.log(camera);
 
       onMouseMove(event);
       if (event.isPrimary === false) return;
@@ -460,22 +504,16 @@ function TPano(d) {
         return;
       }
       if (event.isPrimary === false) return;
-      let rate; //触控灵敏度
-      //想写个函数来线性计算这里的灵敏度，暂时没找到合适的函数
+      let rate;
       if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
-        //判断为手机
         rate = 0.4;
       } else {
-        //判断为电脑
         rate = 0.1;
       }
 
-      //缩放视角时 暂停相机旋转
       if (mouseFovControllerSport) {
         lon = (onPointerDownMouseX - event.clientX) * rate + onPointerDownLon;
-        //console.log('calc0:'+onPointerDownLat);
         lat = (event.clientY - onPointerDownMouseY) * rate + onPointerDownLat;
-        //console.log('calc1:'+lat);
         update();
       }
     }
@@ -501,17 +539,13 @@ function TPano(d) {
 
     function update() {
       if (isUserInteracting === false) {
-        //lon += 0.1;
       }
-      //console.log('lon->' + lon, 'lat->' + lat);
       lat = Math.max(-85, Math.min(85, lat));
       phi = THREE.MathUtils.degToRad(90 - lat);
       theta = THREE.MathUtils.degToRad(lon);
       const x = 500 * Math.sin(phi) * Math.cos(theta);
       const y = 500 * Math.cos(phi);
       const z = 500 * Math.sin(phi) * Math.sin(theta);
-      //console.log('x=' + x + 'y=' + y + 'z=' + z);
-      //console.log('x=' + THREE.MathUtils.radToDeg(camera.rotation.x), 'y=' + THREE.MathUtils.radToDeg(camera.rotation.y));
       camera.lookAt(x, y, z);
     }
   }
@@ -519,13 +553,11 @@ function TPano(d) {
   //渲染
   function render() {
     if (d.DeviceOrientationControls == true) {
-      //检测陀螺仪状态，比如电脑不支持陀螺仪，回调一个消息告诉前台
       if (
         camera.rotation._x == -1.5707963267948966 &&
         camera.rotation._y == 0 &&
         camera.rotation._z == 0
       ) {
-        //当相机对准这个坐标表示很可能设备不支持陀螺仪
         d.gyroSport(false);
       } else {
         d.gyroSport(true);
@@ -539,8 +571,6 @@ function TPano(d) {
   this.re = {
     /**
      * 宽高重设
-     * @param doble width 宽度
-     * @param double height 高度
      */
     resizeRendererToDisplaySize: function resizeRendererToDisplaySize(
       width,
@@ -554,17 +584,16 @@ function TPano(d) {
       renderer.domElement.style.width = width + "px";
       renderer.domElement.style.height = height + "px";
     },
+
     /**
      * 全景照片切换函数
-     * 该函数执行不一定能立刻切换，可能因为照片没有下载完毕不能切换，请于开发文档关注此方法的回调函数
-     * @param int i 需要切换哪张照片
      */
     switchPhoto: function switchPhoto(i) {
       return switchPhotoN(i - 1);
     },
+
     /**
      * 切换体感
-     * @param bool e 体感控制开关，true表示打开，false表示关闭
      */
     switchGyro: function switchGyro(e) {
       d.DeviceOrientationControls = e;
@@ -572,10 +601,42 @@ function TPano(d) {
 
     /**
      * 切换鼠标控制
-     * @param bool e 鼠标控制开关
      */
     seitchMouseController: function seitchMouseController(e) {
       d.MouseController = e;
+    },
+
+    /**
+     * 地理坐标转三维坐标
+     */
+    geoTo3D: function (longitude, latitude, altitude) {
+      return geoTo3D(
+        longitude,
+        latitude,
+        altitude,
+        geoOrigin.longitude,
+        geoOrigin.latitude,
+        geoOrigin.altitude
+      );
+    },
+
+    /**
+     * 三维坐标转地理坐标
+     */
+    threeDToGeo: function (x, y, z) {
+      const R = 6371000;
+      const originLonRad = THREE.MathUtils.degToRad(geoOrigin.longitude);
+      const originLatRad = THREE.MathUtils.degToRad(geoOrigin.latitude);
+
+      const deltaLon = x / (R * Math.cos(originLatRad));
+      const deltaLat = z / R;
+
+      const longitude =
+        geoOrigin.longitude + THREE.MathUtils.radToDeg(deltaLon);
+      const latitude = geoOrigin.latitude + THREE.MathUtils.radToDeg(deltaLat);
+      const altitude = geoOrigin.altitude + y;
+
+      return { longitude, latitude, altitude };
     },
   };
 }

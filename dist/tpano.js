@@ -2,7 +2,7 @@
  * @Author: Maicro-bao baorong@airia.cn
  * @Date: 2022-10-19 13:08:08
  * @LastEditors: Maicro-bao baorong@airia.cn
- * @LastEditTime: 2025-09-29 15:08:29
+ * @LastEditTime: 2025-09-29 16:12:34
  * @FilePath: \VR360\dist\tpano.js
  * @Description: 增强版全景查看器 - 支持拍摄点经纬度配置
  * Copyright (c) 2025 by maicro, All Rights Reserved.
@@ -466,7 +466,6 @@ function TPano(d) {
   //初始化热点
   let hotspotAnimate_count = 1;
   let hotspotAnimate_temp = Array();
-  const hotspotOriginalY = [];
   function initHotspot() {
     // 测试几个关键点
     const testPoints = [

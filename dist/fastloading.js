@@ -1,34 +1,42 @@
-var tpanoAutoLoad = Array();
+var tpanoAutoLoad = [];
 
 for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
+  const panoElement = document.getElementsByTagName("tpano")[i];
+
+  // 获取地理参考信息
+  const geoRef = {
+    longitude: parseFloat(panoElement.getAttribute("data-lon")) || 118.931944,
+    latitude: parseFloat(panoElement.getAttribute("data-lat")) || 32.028096,
+    altitude: parseFloat(panoElement.getAttribute("data-alt")) || 10,
+  };
+
   const pano = new TPano({
-    el: document.getElementsByTagName("tpano")[i].id, //照片查看器根节点dom的id
+    el: panoElement.id,
+    geoReference: geoRef, // 设置地理参考原点
     photo: [
-      //全景照片数组，每项为一张照片
       {
-        url: document.getElementsByTagName("tpano")[i].attributes.src.value,
+        url: panoElement.attributes.src.value,
         name: "main",
-        geoReference: {
-          longitude: 118.931944,
-          latitude: 32.028096,
-          altitude: 10,
-        },
+        geoReference: geoRef,
       },
     ],
     hotspot: [
       {
         source: "main",
-        targetLon: 230.59090964594947, // 使用绝对经度（比拍摄点经度大0.01）
-        targetLat: 8.511624070050303, // 使用绝对纬度（比拍摄点纬度大0.01）
-        altitude: 100,
+        geoReference: {
+          longitude: geoRef.longitude, // 东经增加0.01度
+          latitude: geoRef.latitude, // 北纬增加0.01度
+          altitude: geoRef.altitude + 0.1, // 高度增加100米
+        },
         imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
         jumpTo: "next-pano",
       },
     ],
-    rotateAnimateController: false, //镜头自转
-    MouseController: false, //鼠标控制
-    debug: true, //调试模式
+    rotateAnimateController: false,
+    MouseController: false,
+    debug: true,
   });
+
   tpanoAutoLoad[i] = pano;
 
   setTimeout(() => {}, 500);
