@@ -11,14 +11,16 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
         geoReference: {
           longitude: 118.931944,
           latitude: 32.028096,
+          altitude: 10, // 添加高度信息（米），假设热点比拍摄点高10米
         },
       },
     ],
     hotspot: [
       {
         source: "main",
-        targetLon: 118.931944, // 使用真实的绝对坐标，比如拍摄点附近
-        targetLat: 32.028096,
+        lon: 1, // 相对经度角度
+        lat: 2, // 相对纬度角度
+        altitude: 1,
         imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
         jumpTo: "next-pano",
       },
@@ -30,15 +32,29 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
   tpanoAutoLoad[i] = pano;
 
   setTimeout(() => {
-    const absCoords = pano.api.getCurrentViewAbsoluteLonLat();
-    console.warn("当前绝对坐标:", absCoords);
+    // 测试坐标转换
+    const mapper = pano.api.getCoordinateMapper();
+    const testLon = 118.931944 + 0.01;
+    const testLat = 32.028096 + 0.01;
 
-    // 添加热点位置验证
-    const hotspotPos = pano.api.getCoordinateMapper().absoluteLonLatToVector3(
-      118.932944, // 示例坐标
-      32.029096
+    const position = mapper.absoluteLonLatToVector3(testLon, testLat, 50);
+    console.warn("热点坐标转换测试:", {
+      输入经纬度: { lon: testLon, lat: testLat },
+      输出位置: position,
+      距离拍摄点: {
+        经度差: testLon - 118.931944,
+        纬度差: testLat - 32.028096,
+      },
+    });
+
+    // 计算真实距离
+    const distance = mapper.calculateDistance(
+      118.931944,
+      32.028096,
+      testLon,
+      testLat
     );
-    console.warn("热点计算位置:", hotspotPos);
+    console.warn("实际地理距离:", distance.toFixed(2) + "米");
   }, 500);
 }
 

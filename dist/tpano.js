@@ -2,7 +2,7 @@
  * @Author: Maicro-bao baorong@airia.cn
  * @Date: 2022-10-19 13:08:08
  * @LastEditors: Maicro-bao baorong@airia.cn
- * @LastEditTime: 2025-09-29 11:19:15
+ * @LastEditTime: 2025-09-29 13:35:27
  * @FilePath: \VR360\dist\tpano.js
  * @Description: 增强版全景查看器 - 支持拍摄点经纬度配置
  * Copyright (c) 2025 by maicro, All Rights Reserved.
@@ -97,26 +97,42 @@ function TPano(d) {
     absoluteLonLatToVector3: function (
       absLon,
       absLat,
+      altitude = 0,
       radius = 500,
       scale = 0.9
     ) {
       if (!this.currentGeoReference) {
-        if (params.debug) {
-          console.warn("未设置拍摄点地理参考，使用相对坐标转换");
-        }
         return this.lonLatToVector3(absLon, absLat, radius, scale);
       }
 
-      // 修正：计算真实的地理偏移角度
+      // 更精确的坐标转换
       const deltaLon = absLon - this.currentGeoReference.longitude;
       const deltaLat = absLat - this.currentGeoReference.latitude;
 
-      // 将地理偏移转换为球面角度（考虑纬度对经度距离的影响）
+      // 方法1：使用更合理的比例因子
+      // 1度纬度 ≈ 111km，1度经度 ≈ 111km * cos(纬度)
+      const metersPerDegree = 111000; // 1度 ≈ 111km
       const latRad = (this.currentGeoReference.latitude * Math.PI) / 180;
-      const lon = deltaLon * Math.cos(latRad); // 经度偏移考虑纬度因素
-      const lat = deltaLat; // 纬度偏移直接使用
 
-      return this.lonLatToVector3(lon, lat, radius, scale);
+      // 将经纬度偏移转换为米
+      const deltaXMeters = deltaLon * metersPerDegree * Math.cos(latRad);
+      const deltaYMeters = deltaLat * metersPerDegree;
+
+      // 将米转换为球面角度（简化处理）
+      // 球体半径500单位，对应现实中的大概距离
+      const angleScale = 0.001; // 调整这个值来获得合适的视觉效果
+
+      const lonAngle = deltaXMeters * angleScale;
+      const latAngle = deltaYMeters * angleScale;
+
+      console.log(
+        `坐标转换: 经度偏移${deltaLon}度 -> ${deltaXMeters}米 -> ${lonAngle}角度`
+      );
+      console.log(
+        `坐标转换: 纬度偏移${deltaLat}度 -> ${deltaYMeters}米 -> ${latAngle}角度`
+      );
+
+      return this.lonLatToVector3(lonAngle, latAngle, radius, scale);
     },
 
     /**
@@ -447,6 +463,14 @@ function TPano(d) {
   const hotspotOriginalY = [];
   function initHotspot() {
     const currentPanoName = mesh.material.map.panoName;
+
+    // 添加参考点（拍摄点位置）
+    const refGeometry = new THREE.SphereGeometry(5);
+    const refMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const refPoint = new THREE.Mesh(refGeometry, refMaterial);
+    refPoint.position.set(0, 0, 0); // 拍摄点在球心
+    refPoint.name = "reference_point";
+    scene.add(refPoint);
 
     // 支持两种热点配置方式：绝对经纬度或相对坐标
     params.hotspot.forEach((hotspot, j) => {
