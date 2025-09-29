@@ -74,7 +74,7 @@ function TPano(d) {
     const z = deltaLat * R;
     const y = altitude - originAlt;
 
-    return new THREE.Vector3(x, y, z);
+    return new THREE.Vector3(-z, y, x);
   }
 
   //生成全景图片3D对象
