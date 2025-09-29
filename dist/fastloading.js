@@ -11,16 +11,16 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
         geoReference: {
           longitude: 118.931944,
           latitude: 32.028096,
-          altitude: 0.1,
+          altitude: 10,
         },
       },
     ],
     hotspot: [
       {
         source: "main",
-        targetLon: 118.931944, // 使用绝对经度（比拍摄点经度大0.01）
-        targetLat: 32.028096, // 使用绝对纬度（比拍摄点纬度大0.01）
-        altitude: 100,
+        targetLon: 230.59090964594947, // 使用绝对经度（比拍摄点经度大0.01）
+        targetLat: 8.511624070050303, // 使用绝对纬度（比拍摄点纬度大0.01）
+        altitude: 0,
         imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
         jumpTo: "next-pano",
       },

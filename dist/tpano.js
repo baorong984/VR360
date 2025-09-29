@@ -2,7 +2,7 @@
  * @Author: Maicro-bao baorong@airia.cn
  * @Date: 2022-10-19 13:08:08
  * @LastEditors: Maicro-bao baorong@airia.cn
- * @LastEditTime: 2025-09-29 14:31:49
+ * @LastEditTime: 2025-09-29 14:51:26
  * @FilePath: \VR360\dist\tpano.js
  * @Description: 增强版全景查看器 - 支持拍摄点经纬度配置
  * Copyright (c) 2025 by maicro, All Rights Reserved.
@@ -149,18 +149,15 @@ function TPano(d) {
       const phi = (90 - lat) * (Math.PI / 180); // 纬度处理
       const theta = (lon + 90) * (Math.PI / 180); // 经度处理
 
-      // 这里的方向可能需要调整
-      const x = effectiveRadius * Math.sin(phi) * Math.cos(theta);
-      const z = effectiveRadius * Math.sin(phi) * Math.sin(theta);
+      // 为了更直观的高度效果，可以增加一个高度系数
+      const heightFactor = 50; // 调整这个值可以改变高度的视觉效果
+      const adjustedAltitude = (altitude * heightFactor) / 1000; // 假设altitude是米
 
-      // Y坐标需要考虑高度偏移
-      // 假设 altitude 是相对于拍摄点的高度（米）
-      // 需要将米转换为球面坐标的偏移量
-      const heightScale = 0.1; // 调整这个系数来控制高度影响
-      const baseY = effectiveRadius * Math.cos(phi);
-      const altitudeOffset = altitude * heightScale;
+      const adjustedRadius = effectiveRadius + adjustedAltitude;
 
-      const y = baseY + altitudeOffset;
+      const x = adjustedRadius * Math.sin(phi) * Math.cos(theta);
+      const z = adjustedRadius * Math.sin(phi) * Math.sin(theta);
+      const y = adjustedRadius * Math.cos(phi);
 
       return new THREE.Vector3(x, y, z);
     },
@@ -832,46 +829,75 @@ function TPano(d) {
       raycaster.setFromCamera(mouse, camera);
       // 计算物体和射线的交点
       const intersects = raycaster.intersectObjects(scene.children);
+
       for (let i = 0; i < intersects.length; i++) {
+        const point = intersects[i].point;
+
+        // 转换为球面坐标
+        const radius = Math.sqrt(
+          point.x * point.x + point.y * point.y + point.z * point.z
+        );
+        const lon = Math.atan2(point.z, point.x);
+        const lat = Math.asin(point.y / radius);
+
+        // 计算绝对经纬度（如果有地理参考）
+        let hotspotCoordinates = null;
+        if (CoordinateMapper.currentGeoReference) {
+          const absoluteCoords =
+            CoordinateMapper.vector3ToAbsoluteLonLat(point);
+          hotspotCoordinates = {
+            longitude: absoluteCoords.longitude,
+            latitude: absoluteCoords.latitude,
+            altitude: 0, // 默认高度，可以根据需要调整
+          };
+        } else {
+          // 没有地理参考时使用相对角度
+          hotspotCoordinates = {
+            lon: THREE.MathUtils.radToDeg(lon),
+            lat: THREE.MathUtils.radToDeg(lat),
+            altitude: 0,
+          };
+        }
+
+        // 打印坐标信息（无论是否debug模式）
+        console.log("热点坐标:", hotspotCoordinates);
+
+        // 触发点击回调事件，如果外部提供了回调函数
+        if (d.onPositionClick) {
+          d.onPositionClick({
+            point: point,
+            coordinates: hotspotCoordinates,
+            isHotspot: intersects[i].object.name === "hotspot",
+            hotspot:
+              intersects[i].object.name === "hotspot"
+                ? intersects[i].object
+                : null,
+          });
+        }
+
+        // 原始debug信息（保留）
         if (d.debug == true) {
-          console.log("点击坐标：", intersects[i].point);
-          // 计算三维点对应的二维贴图坐标
-          const point = intersects[i].point;
+          console.log("点击坐标：", point);
+
+          // 计算二维贴图坐标
           const textureWidth = mesh.material.map.image.width;
           const textureHeight = mesh.material.map.image.height;
 
-          // 转换为球面坐标（经纬度）
-          const radius = Math.sqrt(
-            point.x * point.x + point.y * point.y + point.z * point.z
-          );
-          const lon = Math.atan2(point.z, point.x); // 经度
-          const lat = Math.asin(point.y / radius); // 纬度
-
           // 将经纬度映射到UV坐标(0-1范围)
-          const u = (lon + Math.PI) / (2 * Math.PI); // 0-1范围的水平坐标
-          const v = (Math.PI / 2 - lat) / Math.PI; // 0-1范围的垂直坐标
+          const u = (lon + Math.PI) / (2 * Math.PI);
+          const v = (Math.PI / 2 - lat) / Math.PI;
 
           // 转换为图片像素坐标
           const pixelX = Math.floor(u * textureWidth);
           const pixelY = Math.floor(v * textureHeight);
 
-          // console.log("二维贴图坐标(UV):", { u, v });
-          // console.log("图片像素坐标:", { pixelX, pixelY });
-
-          // 如果设置了地理参考，显示绝对坐标
-          if (CoordinateMapper.currentGeoReference) {
-            const absoluteCoords =
-              CoordinateMapper.vector3ToAbsoluteLonLat(point);
-            console.log("绝对经纬度:", {
-              longitude: absoluteCoords.longitude,
-              latitude: absoluteCoords.latitude,
-            });
-          }
+          console.log("二维贴图坐标(UV):", { u, v });
+          console.log("图片像素坐标:", { pixelX, pixelY });
         }
-        //检测点击热点是否跳转场地
+
+        //检测点击热点是否跳转场地（保留原有功能）
         if (intersects[i].object.jumpTo != null && i == 0) {
           switchPhotoN(intersects[i].object.jumpTo);
-          console.log(scene);
         }
       }
     }
