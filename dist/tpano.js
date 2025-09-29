@@ -2,7 +2,7 @@
  * @Author: Maicro-bao baorong@airia.cn
  * @Date: 2022-10-19 13:08:08
  * @LastEditors: Maicro-bao baorong@airia.cn
- * @LastEditTime: 2025-09-29 13:59:34
+ * @LastEditTime: 2025-09-29 14:31:49
  * @FilePath: \VR360\dist\tpano.js
  * @Description: 增强版全景查看器 - 支持拍摄点经纬度配置
  * Copyright (c) 2025 by maicro, All Rights Reserved.
@@ -105,45 +105,28 @@ function TPano(d) {
         return this.lonLatToVector3(absLon, absLat, altitude, radius, scale);
       }
 
-      // 更精确的坐标转换 - 使用球面距离和方位角
+      // 计算相对偏移（度）
       const deltaLon = absLon - this.currentGeoReference.longitude;
       const deltaLat = absLat - this.currentGeoReference.latitude;
 
-      // 计算方位角（从北顺时针）
-      const bearing = this.calculateBearing(absLon, absLat);
-
-      // 计算距离（米）
-      const distance = this.calculateDistance(
-        this.currentGeoReference.longitude,
-        this.currentGeoReference.latitude,
-        absLon,
-        absLat
-      );
-
-      if (params.debug) {
-        console.log(`坐标转换详情:`, {
-          经度差: deltaLon,
-          纬度差: deltaLat,
-          实际距离: distance + "米",
-          方位角: bearing + "度",
-        });
-      }
-
-      // 将距离转换为球面上的角度（弧度）
-      // 假设球体半径500单位对应现实中的可视范围
-      const angularDistance = (distance / 1000) * (Math.PI / 180) * 10; // 调整这个系数
-
-      // 使用球面三角函数计算相对角度
-      const relativeLon = Math.sin((bearing * Math.PI) / 180) * angularDistance;
-      const relativeLat = Math.cos((bearing * Math.PI) / 180) * angularDistance;
-
-      return this.lonLatToVector3(
-        (relativeLon * 180) / Math.PI,
-        (relativeLat * 180) / Math.PI,
-        altitude, // ← 传递 altitude 参数
+      // 直接使用相对偏移创建热点
+      // 调整系数：1度 ≈ 在500半径的球面上约8.7个单位
+      const position = this.lonLatToVector3(
+        deltaLon * 50, // 放大系数，便于观察
+        deltaLat * 50,
+        altitude,
         radius,
         scale
       );
+
+      if (params.debug) {
+        console.log(
+          `坐标转换: 经度差=${deltaLon}, 纬度差=${deltaLat}, 位置=`,
+          position
+        );
+      }
+
+      return position;
     },
 
     /**
@@ -163,12 +146,10 @@ function TPano(d) {
       scale = 0.9
     ) {
       const effectiveRadius = radius * scale;
+      const phi = (90 - lat) * (Math.PI / 180); // 纬度处理
+      const theta = (lon + 90) * (Math.PI / 180); // 经度处理
 
-      // 转换为弧度
-      const phi = (90 - lat) * (Math.PI / 180);
-      const theta = (lon + 90) * (Math.PI / 180);
-
-      // 计算基础球面坐标
+      // 这里的方向可能需要调整
       const x = effectiveRadius * Math.sin(phi) * Math.cos(theta);
       const z = effectiveRadius * Math.sin(phi) * Math.sin(theta);
 
@@ -495,14 +476,6 @@ function TPano(d) {
   function initHotspot() {
     const currentPanoName = mesh.material.map.panoName;
 
-    // 添加参考点（拍摄点位置）
-    const refGeometry = new THREE.SphereGeometry(5);
-    const refMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-    const refPoint = new THREE.Mesh(refGeometry, refMaterial);
-    refPoint.position.set(0, 0, 0); // 拍摄点在球心
-    refPoint.name = "reference_point";
-    scene.add(refPoint);
-
     // 支持两种热点配置方式：绝对经纬度或相对坐标
     params.hotspot.forEach((hotspot, j) => {
       if (hotspot.source === currentPanoName) {
@@ -540,7 +513,6 @@ function TPano(d) {
       500,
       0.9
     );
-
     // 计算距离和方位角（用于调试）
     if (params.debug && CoordinateMapper.currentGeoReference) {
       const distance = CoordinateMapper.calculateDistance(
