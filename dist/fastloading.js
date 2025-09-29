@@ -1,37 +1,47 @@
 var tpanoAutoLoad = Array();
 
 for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
-  tpanoAutoLoad[i] = new TPano({
+  const pano = new TPano({
     el: document.getElementsByTagName("tpano")[i].id, //照片查看器根节点dom的id
     photo: [
       //全景照片数组，每项为一张照片
       {
         url: document.getElementsByTagName("tpano")[i].attributes.src.value,
         name: "main",
-        // 添加地理位置信息
-        geoLocation: {
-          center: { lat: 39.9042, lng: 116.4074 }, // 拍摄点经纬度
+        geoReference: {
+          longitude: 118.931944,
+          latitude: 32.028096,
         },
       },
     ],
     hotspot: [
       {
         source: "main",
-        lon: 116.3974, // 经度
-        lat: 39.9093, // 纬度
-        imgUrl: "hotspot.png",
+        targetLon: 12.773346268787364, // 绝对经度
+        targetLat: 32.028096, // 绝对纬度
+        imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
         jumpTo: "next-pano",
       },
     ],
     rotateAnimateController: false, //镜头自转
     MouseController: false, //鼠标控制
     debug: true, //调试模式
-    // 添加点击回调函数
-    onClickGeoLocation: function (geoPoint) {
-      console.log("点击位置的实际经纬度:", geoPoint);
-      // 处理点击位置的实际经纬度
-    },
   });
+  tpanoAutoLoad[i] = pano;
+
+  setTimeout(() => {
+    // // 使用绝对坐标添加热点
+    // pano.api.addAbsoluteHotspot(
+    //   116.3974,
+    //   39.9163,
+    //   "http://172.16.50.217:10081/image_api/source.png",
+    //   "target"
+    // );
+
+    // 获取当前绝对坐标
+    const absCoords = pano.api.getCurrentViewAbsoluteLonLat();
+    console.warn("当前绝对坐标:", absCoords);
+  }, 500);
 }
 
 var el = window.document.body;

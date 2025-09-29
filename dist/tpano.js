@@ -2,9 +2,9 @@
  * @Author: Maicro-bao baorong@airia.cn
  * @Date: 2022-10-19 13:08:08
  * @LastEditors: Maicro-bao baorong@airia.cn
- * @LastEditTime: 2025-09-29 10:13:45
+ * @LastEditTime: 2025-09-29 11:11:15
  * @FilePath: \VR360\dist\tpano.js
- * @Description:
+ * @Description: 增强版全景查看器 - 支持拍摄点经纬度配置
  * Copyright (c) 2025 by maicro, All Rights Reserved.
  */
 function TPano(d) {
@@ -63,14 +63,70 @@ function TPano(d) {
   var texture = Array();
   let loadTextureLoaderCount = 0;
 
-  // 经纬度映射工具函数
+  // 增强版经纬度映射工具函数
   const CoordinateMapper = {
+    // 当前全景的拍摄点地理信息
+    currentGeoReference: null,
+
     /**
-     * 将经纬度转换为3D球面坐标
-     * @param {number} lon - 经度 (-180 到 180)
-     * @param {number} lat - 纬度 (-90 到 90)
+     * 设置当前拍摄点的地理参考
+     * @param {Object} geoRef - 地理参考信息
+     */
+    setGeoReference: function (geoRef) {
+      this.currentGeoReference = geoRef;
+      if (params.debug) {
+        console.log("设置地理参考:", geoRef);
+      }
+    },
+
+    /**
+     * 获取当前拍摄点的地理参考
+     */
+    getGeoReference: function () {
+      return this.currentGeoReference;
+    },
+
+    /**
+     * 将绝对经纬度转换为相对于拍摄点的3D坐标
+     * @param {number} absLon - 绝对经度
+     * @param {number} absLat - 绝对纬度
      * @param {number} radius - 球体半径 (默认: 500)
-     * @param {number} scale - 缩放系数 (默认: 0.9，防止z-fighting)
+     * @param {number} scale - 缩放系数 (默认: 0.9)
+     * @returns {THREE.Vector3} 3D坐标
+     */
+    absoluteLonLatToVector3: function (
+      absLon,
+      absLat,
+      radius = 500,
+      scale = 0.9
+    ) {
+      if (!this.currentGeoReference) {
+        if (params.debug) {
+          console.warn("未设置拍摄点地理参考，使用相对坐标转换");
+        }
+        return this.lonLatToVector3(absLon, absLat, radius, scale);
+      }
+
+      // 计算相对于拍摄点的偏移量（简化版，适用于小范围）
+      const deltaLon = absLon - this.currentGeoReference.longitude;
+      const deltaLat = absLat - this.currentGeoReference.latitude;
+
+      // 将地理偏移量转换为球面角度
+      // 注意：这是简化计算，实际需要考虑地球曲率，但对于全景应用通常足够
+      const lon =
+        deltaLon *
+        Math.cos((this.currentGeoReference.latitude * Math.PI) / 180);
+      const lat = deltaLat;
+
+      return this.lonLatToVector3(lon, lat, radius, scale);
+    },
+
+    /**
+     * 将相对角度转换为3D球面坐标（基础方法）
+     * @param {number} lon - 经度偏移量（度）
+     * @param {number} lat - 纬度偏移量（度）
+     * @param {number} radius - 球体半径
+     * @param {number} scale - 缩放系数
      * @returns {THREE.Vector3} 3D坐标
      */
     lonLatToVector3: function (lon, lat, radius = 500, scale = 0.9) {
@@ -85,6 +141,37 @@ function TPano(d) {
       const z = effectiveRadius * Math.sin(phi) * Math.sin(theta);
 
       return new THREE.Vector3(x, y, z);
+    },
+
+    /**
+     * 将3D坐标转换为相对于拍摄点的经纬度
+     * @param {THREE.Vector3} position - 3D坐标
+     * @param {number} radius - 球体半径
+     * @returns {Object} 包含绝对经纬度的对象
+     */
+    vector3ToAbsoluteLonLat: function (position, radius = 500) {
+      const relative = this.vector3ToLonLat(position, radius);
+
+      if (!this.currentGeoReference) {
+        return {
+          longitude: relative.longitude,
+          latitude: relative.latitude,
+          relative: relative,
+        };
+      }
+
+      // 将相对坐标转换回绝对坐标
+      const absLon =
+        this.currentGeoReference.longitude +
+        relative.longitude /
+          Math.cos((this.currentGeoReference.latitude * Math.PI) / 180);
+      const absLat = this.currentGeoReference.latitude + relative.latitude;
+
+      return {
+        longitude: absLon,
+        latitude: absLat,
+        relative: relative,
+      };
     },
 
     /**
@@ -140,6 +227,51 @@ function TPano(d) {
       const latitude = 90 - v * 180;
       return { longitude, latitude };
     },
+
+    /**
+     * 计算两个绝对经纬度点之间的距离（米）
+     * @param {number} lon1 - 起点经度
+     * @param {number} lat1 - 起点纬度
+     * @param {number} lon2 - 终点经度
+     * @param {number} lat2 - 终点纬度
+     * @returns {number} 距离（米）
+     */
+    calculateDistance: function (lon1, lat1, lon2, lat2) {
+      const R = 6371000; // 地球半径（米）
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLon = ((lon2 - lon1) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat1 * Math.PI) / 180) *
+          Math.cos((lat2 * Math.PI) / 180) *
+          Math.sin(dLon / 2) *
+          Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    },
+
+    /**
+     * 计算从拍摄点到目标点的方位角
+     * @param {number} targetLon - 目标点经度
+     * @param {number} targetLat - 目标点纬度
+     * @returns {number} 方位角（度，0=北，90=东）
+     */
+    calculateBearing: function (targetLon, targetLat) {
+      if (!this.currentGeoReference) return 0;
+
+      const startLat = (this.currentGeoReference.latitude * Math.PI) / 180;
+      const startLon = (this.currentGeoReference.longitude * Math.PI) / 180;
+      const endLat = (targetLat * Math.PI) / 180;
+      const endLon = (targetLon * Math.PI) / 180;
+
+      const y = Math.sin(endLon - startLon) * Math.cos(endLat);
+      const x =
+        Math.cos(startLat) * Math.sin(endLat) -
+        Math.sin(startLat) * Math.cos(endLat) * Math.cos(endLon - startLon);
+      const bearing = Math.atan2(y, x);
+
+      return ((bearing * 180) / Math.PI + 360) % 360;
+    },
   };
 
   loadTextureLoader(loadTextureLoaderCount);
@@ -188,11 +320,18 @@ function TPano(d) {
     let i = loadTextureLoaderCount;
     console.log(texture);
     texture[i].panoName = d.photo[i].name;
+
+    // 设置当前全景的地理参考（如果配置了的话）
+    if (d.photo[i].geoReference) {
+      CoordinateMapper.setGeoReference(d.photo[i].geoReference);
+    }
+
     loadTextureMsg = {
       all: d.photo.length,
       loading: {
         id: i + 1,
         name: d.photo[i].name,
+        geoReference: d.photo[i].geoReference, // 包含地理信息
       },
       Leftover: d.photo.length - i - 1,
     };
@@ -281,6 +420,12 @@ function TPano(d) {
         console.log(texture);
         material = new THREE.MeshBasicMaterial({ map: texture[i] });
         mesh.material = material;
+
+        // 设置新的地理参考
+        if (d.photo[i].geoReference) {
+          CoordinateMapper.setGeoReference(d.photo[i].geoReference);
+        }
+
         cleanHotspot();
         if (d.hotspot != null) {
           initHotspot();
@@ -288,6 +433,7 @@ function TPano(d) {
         response = {
           status: "OK",
           msg: "切换成功",
+          geoReference: d.photo[i].geoReference, // 返回地理信息
         };
       }
     } else {
@@ -302,44 +448,90 @@ function TPano(d) {
   let hotspotAnimate_temp = Array();
   const hotspotOriginalY = [];
   function initHotspot() {
-    // for (let j = 0; j < d.hotspot.length; j++) {
-    //   if (mesh.material.map.panoName == d.hotspot[j].source) {
-    //     let map = new THREE.TextureLoader().load(d.hotspot[j].imgUrl);
-    //     let material = new THREE.SpriteMaterial({ map: map });
-
-    //     let sprite = new THREE.Sprite(material);
-    //     sprite.position.set(
-    //       d.hotspot[j].position.x * 0.9,
-    //       d.hotspot[j].position.y * 0.9,
-    //       d.hotspot[j].position.z * 0.9
-    //     );
-    //     sprite.scale.set(30, 30, 1);
-    //     for (let k = 0; k < d.photo.length; k++) {
-    //       if (d.photo[k].name == d.hotspot[j].jumpTo) {
-    //         sprite.jumpTo = k;
-    //       }
-    //     }
-    //     sprite.name = "hotspot";
-    //     scene.add(sprite);
-    //   }
-    // }
-
-    // for (let i = 0; i < scene.children.length; i++) {
-    //   if (scene.children[i].name == "hotspot") {
-    //     hotspotAnimate_temp[i] = scene.children[i].position.y;
-    //   }
-    // }
     const currentPanoName = mesh.material.map.panoName;
+
+    // 支持两种热点配置方式：绝对经纬度或相对坐标
     params.hotspot.forEach((hotspot, j) => {
       if (hotspot.source === currentPanoName) {
-        // 使用经纬度创建热点
-        createHotspotFromLonLat(hotspot);
+        if (
+          hotspot.targetLon !== undefined &&
+          hotspot.targetLat !== undefined
+        ) {
+          // 使用绝对经纬度创建热点
+          createHotspotFromAbsoluteLonLat(hotspot);
+        } else if (hotspot.lon !== undefined && hotspot.lat !== undefined) {
+          // 使用相对经纬度创建热点（向后兼容）
+          createHotspotFromLonLat(hotspot);
+        } else if (hotspot.position) {
+          // 使用3D坐标创建热点（向后兼容）
+          createHotspotFromPosition(hotspot);
+        }
       }
     });
   }
 
   /**
-   * 根据经纬度创建热点
+   * 根据绝对经纬度创建热点
+   * @param {Object} hotspotConfig - 热点配置
+   */
+  function createHotspotFromAbsoluteLonLat(hotspotConfig) {
+    const map = new THREE.TextureLoader().load(hotspotConfig.imgUrl);
+    const material = new THREE.SpriteMaterial({ map: map });
+    const sprite = new THREE.Sprite(material);
+
+    // 使用绝对经纬度计算3D位置
+    const position = CoordinateMapper.absoluteLonLatToVector3(
+      hotspotConfig.targetLon,
+      hotspotConfig.targetLat,
+      500,
+      0.9
+    );
+
+    // 计算距离和方位角（用于调试）
+    if (params.debug && CoordinateMapper.currentGeoReference) {
+      const distance = CoordinateMapper.calculateDistance(
+        CoordinateMapper.currentGeoReference.longitude,
+        CoordinateMapper.currentGeoReference.latitude,
+        hotspotConfig.targetLon,
+        hotspotConfig.targetLat
+      );
+
+      const bearing = CoordinateMapper.calculateBearing(
+        hotspotConfig.targetLon,
+        hotspotConfig.targetLat
+      );
+
+      console.log(
+        `热点距离: ${distance.toFixed(2)}米, 方位角: ${bearing.toFixed(2)}°`
+      );
+    }
+
+    sprite.position.copy(position);
+    sprite.scale.set(30, 30, 1);
+    sprite.name = "hotspot";
+
+    // 设置跳转目标
+    for (let k = 0; k < params.photo.length; k++) {
+      if (params.photo[k].name === hotspotConfig.jumpTo) {
+        sprite.jumpTo = k;
+        break;
+      }
+    }
+
+    // 存储地理信息用于调试
+    sprite.userData = {
+      targetLon: hotspotConfig.targetLon,
+      targetLat: hotspotConfig.targetLat,
+      config: hotspotConfig,
+      type: "absolute_coordinate",
+    };
+
+    scene.add(sprite);
+    hotspotOriginalY.push(sprite.position.y);
+  }
+
+  /**
+   * 根据经纬度创建热点（相对坐标）
    * @param {Object} hotspotConfig - 热点配置
    */
   function createHotspotFromLonLat(hotspotConfig) {
@@ -348,26 +540,12 @@ function TPano(d) {
     const sprite = new THREE.Sprite(material);
 
     // 使用经纬度计算3D位置
-    let position;
-    if (hotspotConfig.lon !== undefined && hotspotConfig.lat !== undefined) {
-      // 使用经纬度坐标
-      position = CoordinateMapper.lonLatToVector3(
-        hotspotConfig.lon,
-        hotspotConfig.lat,
-        500,
-        0.9
-      );
-    } else if (hotspotConfig.position) {
-      // 使用已有的3D坐标（向后兼容）
-      position = new THREE.Vector3(
-        hotspotConfig.position.x * 0.9,
-        hotspotConfig.position.y * 0.9,
-        hotspotConfig.position.z * 0.9
-      );
-    } else {
-      console.warn("热点配置缺少位置信息:", hotspotConfig);
-      return;
-    }
+    const position = CoordinateMapper.lonLatToVector3(
+      hotspotConfig.lon,
+      hotspotConfig.lat,
+      500,
+      0.9
+    );
 
     sprite.position.copy(position);
     sprite.scale.set(30, 30, 1);
@@ -386,6 +564,42 @@ function TPano(d) {
       originalLon: hotspotConfig.lon,
       originalLat: hotspotConfig.lat,
       config: hotspotConfig,
+      type: "relative_coordinate",
+    };
+
+    scene.add(sprite);
+    hotspotOriginalY.push(sprite.position.y);
+  }
+
+  /**
+   * 根据3D位置创建热点（向后兼容）
+   * @param {Object} hotspotConfig - 热点配置
+   */
+  function createHotspotFromPosition(hotspotConfig) {
+    const map = new THREE.TextureLoader().load(hotspotConfig.imgUrl);
+    const material = new THREE.SpriteMaterial({ map: map });
+    const sprite = new THREE.Sprite(material);
+
+    const position = new THREE.Vector3(
+      hotspotConfig.position.x * 0.9,
+      hotspotConfig.position.y * 0.9,
+      hotspotConfig.position.z * 0.9
+    );
+
+    sprite.position.copy(position);
+    sprite.scale.set(30, 30, 1);
+    sprite.name = "hotspot";
+
+    for (let k = 0; k < params.photo.length; k++) {
+      if (params.photo[k].name === hotspotConfig.jumpTo) {
+        sprite.jumpTo = k;
+        break;
+      }
+    }
+
+    sprite.userData = {
+      config: hotspotConfig,
+      type: "3d_position",
     };
 
     scene.add(sprite);
@@ -401,6 +615,7 @@ function TPano(d) {
         i--; //从一个数组中去掉一个元素会使得后面的元素下标前移1，所以下一个遍历的元素下标也需要减一，避免漏网之鱼
       }
     }
+    hotspotOriginalY.length = 0;
   }
 
   //体感控制
@@ -417,24 +632,34 @@ function TPano(d) {
   phoneController();
 
   //动画绑定
+  // 修复后的动画函数
   function animate() {
     requestAnimationFrame(animate);
 
-    //热点摆动
+    // 修复热点摆动 - 使用正确的数组索引
+    let hotspotIndex = 0;
     for (let i = 0; i < scene.children.length; i++) {
       if (scene.children[i].name == "hotspot") {
+        // 确保有对应的原始Y坐标
+        if (hotspotOriginalY[hotspotIndex] === undefined) {
+          // 如果没有存储原始位置，就存储当前位置
+          hotspotOriginalY[hotspotIndex] = scene.children[i].position.y;
+        }
+
         if (hotspotAnimate_count >= 400) {
           hotspotAnimate_count = 1;
-          scene.children[i].position.y = hotspotAnimate_temp[i];
+          // 使用正确的索引重置位置
+          scene.children[i].position.y = hotspotOriginalY[hotspotIndex];
         }
 
         if (hotspotAnimate_count <= 200) {
-          scene.children[i].position.y = scene.children[i].position.y + 0.04;
+          scene.children[i].position.y += 0.04;
         } else {
-          scene.children[i].position.y = scene.children[i].position.y - 0.04;
+          scene.children[i].position.y -= 0.04;
         }
 
         hotspotAnimate_count++;
+        hotspotIndex++;
       }
     }
 
@@ -603,8 +828,18 @@ function TPano(d) {
           const pixelX = Math.floor(u * textureWidth);
           const pixelY = Math.floor(v * textureHeight);
 
-          console.log("二维贴图坐标(UV):", { u, v });
-          console.log("图片像素坐标:", { pixelX, pixelY });
+          // console.log("二维贴图坐标(UV):", { u, v });
+          // console.log("图片像素坐标:", { pixelX, pixelY });
+
+          // 如果设置了地理参考，显示绝对坐标
+          if (CoordinateMapper.currentGeoReference) {
+            const absoluteCoords =
+              CoordinateMapper.vector3ToAbsoluteLonLat(point);
+            console.log("绝对经纬度:", {
+              longitude: absoluteCoords.longitude,
+              latitude: absoluteCoords.latitude,
+            });
+          }
         }
         //检测点击热点是否跳转场地
         if (intersects[i].object.jumpTo != null && i == 0) {
@@ -810,7 +1045,7 @@ function TPano(d) {
     },
 
     /**
-     * 在指定经纬度添加热点
+     * 在指定经纬度添加热点（相对坐标）
      * @param {number} lon - 经度
      * @param {number} lat - 纬度
      * @param {string} imgUrl - 热点图片URL
@@ -829,24 +1064,52 @@ function TPano(d) {
     },
 
     /**
+     * 在指定绝对经纬度添加热点
+     * @param {number} absLon - 绝对经度
+     * @param {number} absLat - 绝对纬度
+     * @param {string} imgUrl - 热点图片URL
+     * @param {string} jumpTo - 跳转目标全景名称
+     */
+    addAbsoluteHotspot: function (absLon, absLat, imgUrl, jumpTo) {
+      const hotspotConfig = {
+        source: mesh.material.map.panoName,
+        targetLon: absLon,
+        targetLat: absLat,
+        imgUrl: imgUrl,
+        jumpTo: jumpTo,
+      };
+
+      createHotspotFromAbsoluteLonLat(hotspotConfig);
+    },
+
+    /**
      * 获取当前视角的经纬度
      * @returns {Object} 当前视角的经纬度
      */
     getCurrentViewLonLat: function () {
-      // 假设相机看向球面上的一个点
       const direction = new THREE.Vector3();
       camera.getWorldDirection(direction);
-      direction.multiplyScalar(500); // 延伸到球面
-
+      direction.multiplyScalar(500);
       return CoordinateMapper.vector3ToLonLat(direction);
     },
 
     /**
-     * 切换鼠标控制
-     * @param bool e 鼠标控制开关
+     * 获取当前视角的绝对经纬度
+     * @returns {Object} 当前视角的绝对经纬度
      */
-    seitchMouseController: function seitchMouseController(e) {
-      d.MouseController = e;
+    getCurrentViewAbsoluteLonLat: function () {
+      const direction = new THREE.Vector3();
+      camera.getWorldDirection(direction);
+      direction.multiplyScalar(500);
+      return CoordinateMapper.vector3ToAbsoluteLonLat(direction);
+    },
+
+    /**
+     * 获取当前拍摄点的地理信息
+     * @returns {Object} 当前拍摄点的地理参考
+     */
+    getCurrentGeoReference: function () {
+      return CoordinateMapper.getGeoReference();
     },
 
     /**
@@ -857,6 +1120,39 @@ function TPano(d) {
     lookAtLonLat: function (lon, lat) {
       const target = CoordinateMapper.lonLatToVector3(lon, lat);
       camera.lookAt(target);
+    },
+
+    /**
+     * 将相机看向指定绝对经纬度
+     * @param {number} absLon - 绝对经度
+     * @param {number} absLat - 绝对纬度
+     */
+    lookAtAbsoluteLonLat: function (absLon, absLat) {
+      const target = CoordinateMapper.absoluteLonLatToVector3(absLon, absLat);
+      camera.lookAt(target);
+    },
+
+    /**
+     * 计算到指定经纬度的距离和方位
+     * @param {number} targetLon - 目标经度
+     * @param {number} targetLat - 目标纬度
+     * @returns {Object} 距离和方位信息
+     */
+    calculateTargetInfo: function (targetLon, targetLat) {
+      if (!CoordinateMapper.currentGeoReference) {
+        return { distance: 0, bearing: 0 };
+      }
+
+      const distance = CoordinateMapper.calculateDistance(
+        CoordinateMapper.currentGeoReference.longitude,
+        CoordinateMapper.currentGeoReference.latitude,
+        targetLon,
+        targetLat
+      );
+
+      const bearing = CoordinateMapper.calculateBearing(targetLon, targetLat);
+
+      return { distance, bearing };
     },
   };
 }
