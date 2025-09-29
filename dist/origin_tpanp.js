@@ -227,7 +227,16 @@ function TPano(d) {
     for (let j = 0; j < d.hotspot.length; j++) {
       if (mesh.material.map.panoName == d.hotspot[j].source) {
         let map = new THREE.TextureLoader().load(d.hotspot[j].imgUrl);
-        let material = new THREE.SpriteMaterial({ map: map });
+
+        // 改进的材质设置，防止热点被遮住
+        let material = new THREE.SpriteMaterial({
+          map: map,
+          transparent: true,
+          depthTest: true,
+          depthWrite: false,
+          alphaTest: 0.1,
+        });
+
         let sprite = new THREE.Sprite(material);
 
         // 处理地理坐标热点
@@ -242,29 +251,38 @@ function TPano(d) {
             geoOrigin.altitude
           );
 
-          // 将三维坐标投影到球面上（半径为500的球体）
+          // 将三维坐标投影到球面上（半径为501的球体，稍微向外偏移）
           const direction = threeDPos.normalize();
-          const spherePos = direction.multiplyScalar(500);
+          const spherePos = direction.multiplyScalar(501);
 
           sprite.position.copy(spherePos);
         }
         // 处理传统的三维坐标热点（向后兼容）
         else if (d.hotspot[j].position) {
+          const position = d.hotspot[j].position;
+          const direction = new THREE.Vector3(
+            position.x,
+            position.y,
+            position.z
+          ).normalize();
+
+          // 沿着方向向量稍微向外偏移
           sprite.position.set(
-            d.hotspot[j].position.x * 0.9,
-            d.hotspot[j].position.y * 0.9,
-            d.hotspot[j].position.z * 0.9
+            position.x * 0.91,
+            position.y * 0.91,
+            position.z * 0.91
           );
         }
 
         sprite.scale.set(30, 30, 1);
+        sprite.renderOrder = 999; // 设置较高的渲染顺序
+        sprite.name = "hotspot";
 
         for (let k = 0; k < d.photo.length; k++) {
           if (d.photo[k].name == d.hotspot[j].jumpTo) {
             sprite.jumpTo = k;
           }
         }
-        sprite.name = "hotspot";
         scene.add(sprite);
       }
     }
