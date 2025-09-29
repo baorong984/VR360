@@ -7,18 +7,20 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
       //全景照片数组，每项为一张照片
       {
         url: document.getElementsByTagName("tpano")[i].attributes.src.value,
-        name: "auto",
+        name: "main",
         // 添加地理位置信息
         geoLocation: {
           center: { lat: 39.9042, lng: 116.4074 }, // 拍摄点经纬度
-          bounds: {
-            // 贴图覆盖的经纬度范围
-            north: 39.91,
-            south: 39.898,
-            east: 116.415,
-            west: 116.399,
-          },
         },
+      },
+    ],
+    hotspot: [
+      {
+        source: "main",
+        lon: 116.3974, // 经度
+        lat: 39.9093, // 纬度
+        imgUrl: "hotspot.png",
+        jumpTo: "next-pano",
       },
     ],
     rotateAnimateController: false, //镜头自转

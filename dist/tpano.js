@@ -1,8 +1,30 @@
+/*
+ * @Author: Maicro-bao baorong@airia.cn
+ * @Date: 2022-10-19 13:08:08
+ * @LastEditors: Maicro-bao baorong@airia.cn
+ * @LastEditTime: 2025-09-29 10:13:45
+ * @FilePath: \VR360\dist\tpano.js
+ * @Description:
+ * Copyright (c) 2025 by maicro, All Rights Reserved.
+ */
 function TPano(d) {
   //选取渲染对象的根dom
   let el = document.getElementById(d.el);
   var width = el.clientWidth;
   var height = el.clientHeight;
+
+  // 参数处理与默认值
+  const params = {
+    DeviceOrientationControls: d.DeviceOrientationControls || false,
+    MouseController: d.MouseController !== false,
+    photo: d.photo || [],
+    hotspot: d.hotspot || [],
+    photoLoad: d.photoLoad || null,
+    switchLoad: d.switchLoad || null,
+    gyroSport: d.gyroSport || null,
+    debug: d.debug || false,
+    rotateAnimateController: d.rotateAnimateController || false,
+  };
 
   //参数处理
   if (d.DeviceOrientationControls == null) {
@@ -40,6 +62,86 @@ function TPano(d) {
   scene.add(mesh);
   var texture = Array();
   let loadTextureLoaderCount = 0;
+
+  // 经纬度映射工具函数
+  const CoordinateMapper = {
+    /**
+     * 将经纬度转换为3D球面坐标
+     * @param {number} lon - 经度 (-180 到 180)
+     * @param {number} lat - 纬度 (-90 到 90)
+     * @param {number} radius - 球体半径 (默认: 500)
+     * @param {number} scale - 缩放系数 (默认: 0.9，防止z-fighting)
+     * @returns {THREE.Vector3} 3D坐标
+     */
+    lonLatToVector3: function (lon, lat, radius = 500, scale = 0.9) {
+      const effectiveRadius = radius * scale;
+
+      // 转换为球坐标
+      const phi = (90 - lat) * (Math.PI / 180); // 极角 (0 到 π)
+      const theta = (lon + 90) * (Math.PI / 180); // 方位角 (0 到 2π)
+
+      const x = effectiveRadius * Math.sin(phi) * Math.cos(theta);
+      const y = effectiveRadius * Math.cos(phi);
+      const z = effectiveRadius * Math.sin(phi) * Math.sin(theta);
+
+      return new THREE.Vector3(x, y, z);
+    },
+
+    /**
+     * 将3D坐标转换为经纬度
+     * @param {THREE.Vector3} position - 3D坐标
+     * @param {number} radius - 球体半径 (默认: 500)
+     * @returns {Object} 包含经度、纬度、UV坐标和像素坐标的对象
+     */
+    vector3ToLonLat: function (position, radius = 500) {
+      const { x, y, z } = position;
+
+      // 计算球面坐标
+      const actualRadius = Math.sqrt(x * x + y * y + z * z);
+      const lon = Math.atan2(z, x); // 经度 (-π 到 π)
+      const lat = Math.asin(y / actualRadius); // 纬度 (-π/2 到 π/2)
+
+      // 转换为角度
+      const longitude_deg = THREE.MathUtils.radToDeg(lon);
+      const latitude_deg = THREE.MathUtils.radToDeg(lat);
+
+      // 计算UV坐标 (0-1范围)
+      const u = (lon + Math.PI) / (2 * Math.PI);
+      const v = (Math.PI / 2 - lat) / Math.PI;
+
+      return {
+        longitude: longitude_deg,
+        latitude: latitude_deg,
+        uv: { u, v },
+        radians: { lon, lat },
+      };
+    },
+
+    /**
+     * 将经纬度转换为UV坐标
+     * @param {number} lon - 经度
+     * @param {number} lat - 纬度
+     * @returns {Object} UV坐标 {u, v}
+     */
+    lonLatToUV: function (lon, lat) {
+      const u = (lon + 180) / 360;
+      const v = (90 - lat) / 180;
+      return { u, v };
+    },
+
+    /**
+     * 将UV坐标转换为经纬度
+     * @param {number} u - U坐标 (0-1)
+     * @param {number} v - V坐标 (0-1)
+     * @returns {Object} 经纬度 {longitude, latitude}
+     */
+    uvToLonLat: function (u, v) {
+      const longitude = u * 360 - 180;
+      const latitude = 90 - v * 180;
+      return { longitude, latitude };
+    },
+  };
+
   loadTextureLoader(loadTextureLoaderCount);
   //用来加载全景照片
   function loadTextureLoader(i) {
@@ -195,37 +297,99 @@ function TPano(d) {
     return response;
   }
 
-  //生成热点
+  //初始化热点
   let hotspotAnimate_count = 1;
   let hotspotAnimate_temp = Array();
+  const hotspotOriginalY = [];
   function initHotspot() {
-    for (let j = 0; j < d.hotspot.length; j++) {
-      if (mesh.material.map.panoName == d.hotspot[j].source) {
-        let map = new THREE.TextureLoader().load(d.hotspot[j].imgUrl);
-        let material = new THREE.SpriteMaterial({ map: map });
+    // for (let j = 0; j < d.hotspot.length; j++) {
+    //   if (mesh.material.map.panoName == d.hotspot[j].source) {
+    //     let map = new THREE.TextureLoader().load(d.hotspot[j].imgUrl);
+    //     let material = new THREE.SpriteMaterial({ map: map });
 
-        let sprite = new THREE.Sprite(material);
-        sprite.position.set(
-          d.hotspot[j].position.x * 0.9,
-          d.hotspot[j].position.y * 0.9,
-          d.hotspot[j].position.z * 0.9
-        );
-        sprite.scale.set(30, 30, 1);
-        for (let k = 0; k < d.photo.length; k++) {
-          if (d.photo[k].name == d.hotspot[j].jumpTo) {
-            sprite.jumpTo = k;
-          }
-        }
-        sprite.name = "hotspot";
-        scene.add(sprite);
+    //     let sprite = new THREE.Sprite(material);
+    //     sprite.position.set(
+    //       d.hotspot[j].position.x * 0.9,
+    //       d.hotspot[j].position.y * 0.9,
+    //       d.hotspot[j].position.z * 0.9
+    //     );
+    //     sprite.scale.set(30, 30, 1);
+    //     for (let k = 0; k < d.photo.length; k++) {
+    //       if (d.photo[k].name == d.hotspot[j].jumpTo) {
+    //         sprite.jumpTo = k;
+    //       }
+    //     }
+    //     sprite.name = "hotspot";
+    //     scene.add(sprite);
+    //   }
+    // }
+
+    // for (let i = 0; i < scene.children.length; i++) {
+    //   if (scene.children[i].name == "hotspot") {
+    //     hotspotAnimate_temp[i] = scene.children[i].position.y;
+    //   }
+    // }
+    const currentPanoName = mesh.material.map.panoName;
+    params.hotspot.forEach((hotspot, j) => {
+      if (hotspot.source === currentPanoName) {
+        // 使用经纬度创建热点
+        createHotspotFromLonLat(hotspot);
+      }
+    });
+  }
+
+  /**
+   * 根据经纬度创建热点
+   * @param {Object} hotspotConfig - 热点配置
+   */
+  function createHotspotFromLonLat(hotspotConfig) {
+    const map = new THREE.TextureLoader().load(hotspotConfig.imgUrl);
+    const material = new THREE.SpriteMaterial({ map: map });
+    const sprite = new THREE.Sprite(material);
+
+    // 使用经纬度计算3D位置
+    let position;
+    if (hotspotConfig.lon !== undefined && hotspotConfig.lat !== undefined) {
+      // 使用经纬度坐标
+      position = CoordinateMapper.lonLatToVector3(
+        hotspotConfig.lon,
+        hotspotConfig.lat,
+        500,
+        0.9
+      );
+    } else if (hotspotConfig.position) {
+      // 使用已有的3D坐标（向后兼容）
+      position = new THREE.Vector3(
+        hotspotConfig.position.x * 0.9,
+        hotspotConfig.position.y * 0.9,
+        hotspotConfig.position.z * 0.9
+      );
+    } else {
+      console.warn("热点配置缺少位置信息:", hotspotConfig);
+      return;
+    }
+
+    sprite.position.copy(position);
+    sprite.scale.set(30, 30, 1);
+    sprite.name = "hotspot";
+
+    // 设置跳转目标
+    for (let k = 0; k < params.photo.length; k++) {
+      if (params.photo[k].name === hotspotConfig.jumpTo) {
+        sprite.jumpTo = k;
+        break;
       }
     }
 
-    for (let i = 0; i < scene.children.length; i++) {
-      if (scene.children[i].name == "hotspot") {
-        hotspotAnimate_temp[i] = scene.children[i].position.y;
-      }
-    }
+    // 存储原始信息用于调试
+    sprite.userData = {
+      originalLon: hotspotConfig.lon,
+      originalLat: hotspotConfig.lat,
+      config: hotspotConfig,
+    };
+
+    scene.add(sprite);
+    hotspotOriginalY.push(sprite.position.y);
   }
 
   //清除热点
@@ -410,7 +574,7 @@ function TPano(d) {
       }
     });
 
-    //获取点击坐标，拾取点击对象
+    // 在positionClick函数中修改
     function positionClick() {
       // 通过摄像机和鼠标位置更新射线
       raycaster.setFromCamera(mouse, camera);
@@ -439,8 +603,8 @@ function TPano(d) {
           const pixelX = Math.floor(u * textureWidth);
           const pixelY = Math.floor(v * textureHeight);
 
-          console.warn("二维贴图坐标(UV):", { u, v });
-          console.warn("图片像素坐标:", { pixelX, pixelY });
+          console.log("二维贴图坐标(UV):", { u, v });
+          console.log("图片像素坐标:", { pixelX, pixelY });
         }
         //检测点击热点是否跳转场地
         if (intersects[i].object.jumpTo != null && i == 0) {
@@ -598,6 +762,101 @@ function TPano(d) {
      */
     seitchMouseController: function seitchMouseController(e) {
       d.MouseController = e;
+    },
+  };
+
+  // 公共API
+  this.api = {
+    /**
+     * 切换全景照片
+     * @param {number} index - 照片索引 (从1开始)
+     */
+    switchPhoto: function (index) {
+      return switchPhotoN(index - 1);
+    },
+
+    /**
+     * 切换陀螺仪控制
+     * @param {boolean} enable - 是否启用
+     */
+    switchGyro: function (enable) {
+      params.DeviceOrientationControls = enable;
+    },
+
+    /**
+     * 切换鼠标控制
+     * @param {boolean} enable - 是否启用
+     */
+    switchMouseController: function (enable) {
+      params.MouseController = enable;
+    },
+
+    /**
+     * 调整渲染器尺寸
+     * @param {number} width - 新宽度
+     * @param {number} height - 新高度
+     */
+    resize: function (width, height) {
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height, false);
+    },
+
+    /**
+     * 获取坐标映射器
+     */
+    getCoordinateMapper: function () {
+      return CoordinateMapper;
+    },
+
+    /**
+     * 在指定经纬度添加热点
+     * @param {number} lon - 经度
+     * @param {number} lat - 纬度
+     * @param {string} imgUrl - 热点图片URL
+     * @param {string} jumpTo - 跳转目标全景名称
+     */
+    addHotspot: function (lon, lat, imgUrl, jumpTo) {
+      const hotspotConfig = {
+        source: mesh.material.map.panoName,
+        lon: lon,
+        lat: lat,
+        imgUrl: imgUrl,
+        jumpTo: jumpTo,
+      };
+
+      createHotspotFromLonLat(hotspotConfig);
+    },
+
+    /**
+     * 获取当前视角的经纬度
+     * @returns {Object} 当前视角的经纬度
+     */
+    getCurrentViewLonLat: function () {
+      // 假设相机看向球面上的一个点
+      const direction = new THREE.Vector3();
+      camera.getWorldDirection(direction);
+      direction.multiplyScalar(500); // 延伸到球面
+
+      return CoordinateMapper.vector3ToLonLat(direction);
+    },
+
+    /**
+     * 切换鼠标控制
+     * @param bool e 鼠标控制开关
+     */
+    seitchMouseController: function seitchMouseController(e) {
+      d.MouseController = e;
+    },
+
+    /**
+     * 将相机看向指定经纬度
+     * @param {number} lon - 经度
+     * @param {number} lat - 纬度
+     */
+    lookAtLonLat: function (lon, lat) {
+      const target = CoordinateMapper.lonLatToVector3(lon, lat);
+      camera.lookAt(target);
     },
   };
 }
