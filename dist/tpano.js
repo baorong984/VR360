@@ -2,7 +2,7 @@
  * @Author: Maicro-bao baorong@airia.cn
  * @Date: 2022-10-19 13:08:08
  * @LastEditors: Maicro-bao baorong@airia.cn
- * @LastEditTime: 2025-09-29 11:11:15
+ * @LastEditTime: 2025-09-29 11:19:15
  * @FilePath: \VR360\dist\tpano.js
  * @Description: 增强版全景查看器 - 支持拍摄点经纬度配置
  * Copyright (c) 2025 by maicro, All Rights Reserved.
@@ -107,16 +107,14 @@ function TPano(d) {
         return this.lonLatToVector3(absLon, absLat, radius, scale);
       }
 
-      // 计算相对于拍摄点的偏移量（简化版，适用于小范围）
+      // 修正：计算真实的地理偏移角度
       const deltaLon = absLon - this.currentGeoReference.longitude;
       const deltaLat = absLat - this.currentGeoReference.latitude;
 
-      // 将地理偏移量转换为球面角度
-      // 注意：这是简化计算，实际需要考虑地球曲率，但对于全景应用通常足够
-      const lon =
-        deltaLon *
-        Math.cos((this.currentGeoReference.latitude * Math.PI) / 180);
-      const lat = deltaLat;
+      // 将地理偏移转换为球面角度（考虑纬度对经度距离的影响）
+      const latRad = (this.currentGeoReference.latitude * Math.PI) / 180;
+      const lon = deltaLon * Math.cos(latRad); // 经度偏移考虑纬度因素
+      const lat = deltaLat; // 纬度偏移直接使用
 
       return this.lonLatToVector3(lon, lat, radius, scale);
     },

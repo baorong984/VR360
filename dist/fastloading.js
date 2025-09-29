@@ -17,8 +17,8 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
     hotspot: [
       {
         source: "main",
-        targetLon: 12.773346268787364, // 绝对经度
-        targetLat: 32.028096, // 绝对纬度
+        targetLon: 118.931944, // 使用真实的绝对坐标，比如拍摄点附近
+        targetLat: 32.028096,
         imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
         jumpTo: "next-pano",
       },
@@ -30,17 +30,15 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
   tpanoAutoLoad[i] = pano;
 
   setTimeout(() => {
-    // // 使用绝对坐标添加热点
-    // pano.api.addAbsoluteHotspot(
-    //   116.3974,
-    //   39.9163,
-    //   "http://172.16.50.217:10081/image_api/source.png",
-    //   "target"
-    // );
-
-    // 获取当前绝对坐标
     const absCoords = pano.api.getCurrentViewAbsoluteLonLat();
     console.warn("当前绝对坐标:", absCoords);
+
+    // 添加热点位置验证
+    const hotspotPos = pano.api.getCoordinateMapper().absoluteLonLatToVector3(
+      118.932944, // 示例坐标
+      32.029096
+    );
+    console.warn("热点计算位置:", hotspotPos);
   }, 500);
 }
 
