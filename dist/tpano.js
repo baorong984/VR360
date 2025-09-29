@@ -2,7 +2,7 @@
  * @Author: Maicro-bao baorong@airia.cn
  * @Date: 2022-10-19 13:08:08
  * @LastEditors: Maicro-bao baorong@airia.cn
- * @LastEditTime: 2025-09-29 14:51:26
+ * @LastEditTime: 2025-09-29 15:08:29
  * @FilePath: \VR360\dist\tpano.js
  * @Description: 增强版全景查看器 - 支持拍摄点经纬度配置
  * Copyright (c) 2025 by maicro, All Rights Reserved.
@@ -45,7 +45,6 @@ function TPano(d) {
     fov = 60;
   }
   const camera = new THREE.PerspectiveCamera(fov, width / height, 0.1, 1000); //创建相机
-  //camera.lookAt(500, 0, 0);//视角矫正
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: true,
@@ -109,24 +108,27 @@ function TPano(d) {
       const deltaLon = absLon - this.currentGeoReference.longitude;
       const deltaLat = absLat - this.currentGeoReference.latitude;
 
-      // 直接使用相对偏移创建热点
-      // 调整系数：1度 ≈ 在500半径的球面上约8.7个单位
-      const position = this.lonLatToVector3(
-        deltaLon * 50, // 放大系数，便于观察
-        deltaLat * 50,
-        altitude,
-        radius,
-        scale
+      // 根据地球曲率计算合适的转换系数
+      const metersPerDegree = 111320; // 在赤道附近每度的米数
+      const distanceMeters = Math.sqrt(
+        Math.pow(
+          deltaLon *
+            metersPerDegree *
+            Math.cos((this.currentGeoReference.latitude * Math.PI) / 180),
+          2
+        ) + Math.pow(deltaLat * metersPerDegree, 2)
       );
 
-      if (params.debug) {
-        console.log(
-          `坐标转换: 经度差=${deltaLon}, 纬度差=${deltaLat}, 位置=`,
-          position
-        );
-      }
+      // 使用距离比例来计算球面位置
+      const angle = distanceMeters / radius;
+      const bearing = Math.atan2(deltaLon, deltaLat);
 
-      return position;
+      // 在球面上计算位置
+      const x = radius * Math.sin(angle) * Math.cos(bearing);
+      const z = radius * Math.sin(angle) * Math.sin(bearing);
+      const y = radius * Math.cos(angle);
+
+      return new THREE.Vector3(x, y, z);
     },
 
     /**
@@ -145,19 +147,14 @@ function TPano(d) {
       radius = 500,
       scale = 0.9
     ) {
-      const effectiveRadius = radius * scale;
-      const phi = (90 - lat) * (Math.PI / 180); // 纬度处理
-      const theta = (lon + 90) * (Math.PI / 180); // 经度处理
+      // 将地理坐标转换为球面坐标
+      const phi = ((90 - lat) * Math.PI) / 180; // 纬度 → 极角
+      const theta = ((lon + 180) * Math.PI) / 180; // 经度 → 方位角
 
-      // 为了更直观的高度效果，可以增加一个高度系数
-      const heightFactor = 50; // 调整这个值可以改变高度的视觉效果
-      const adjustedAltitude = (altitude * heightFactor) / 1000; // 假设altitude是米
-
-      const adjustedRadius = effectiveRadius + adjustedAltitude;
-
-      const x = adjustedRadius * Math.sin(phi) * Math.cos(theta);
-      const z = adjustedRadius * Math.sin(phi) * Math.sin(theta);
-      const y = adjustedRadius * Math.cos(phi);
+      // 球坐标转直角坐标
+      const x = -radius * Math.sin(phi) * Math.cos(theta); // 东-西
+      const y = radius * Math.cos(phi); // 上-下
+      const z = -radius * Math.sin(phi) * Math.sin(theta); // 南-北
 
       return new THREE.Vector3(x, y, z);
     },
@@ -471,6 +468,18 @@ function TPano(d) {
   let hotspotAnimate_temp = Array();
   const hotspotOriginalY = [];
   function initHotspot() {
+    // 测试几个关键点
+    const testPoints = [
+      { lon: 0, lat: 0, name: "赤道本初子午线" },
+      { lon: 90, lat: 0, name: "赤道东经90°" },
+      { lon: 0, lat: 90, name: "北极" },
+      { lon: 0, lat: -90, name: "南极" },
+    ];
+
+    testPoints.forEach((point) => {
+      const position = CoordinateMapper.lonLatToVector3(point.lon, point.lat);
+      console.log(`${point.name} (${point.lon}, ${point.lat}) →`, position);
+    });
     const currentPanoName = mesh.material.map.panoName;
 
     // 支持两种热点配置方式：绝对经纬度或相对坐标

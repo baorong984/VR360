@@ -20,7 +20,7 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
         source: "main",
         targetLon: 230.59090964594947, // 使用绝对经度（比拍摄点经度大0.01）
         targetLat: 8.511624070050303, // 使用绝对纬度（比拍摄点纬度大0.01）
-        altitude: 0,
+        altitude: 100,
         imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
         jumpTo: "next-pano",
       },
