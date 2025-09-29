@@ -228,13 +228,14 @@ function TPano(d) {
       if (mesh.material.map.panoName == d.hotspot[j].source) {
         let map = new THREE.TextureLoader().load(d.hotspot[j].imgUrl);
 
-        // 改进的材质设置，防止热点被遮住
+        // 优化的材质设置，防止热点被遮住
         let material = new THREE.SpriteMaterial({
           map: map,
           transparent: true,
-          depthTest: true,
-          depthWrite: false,
+          depthTest: false, // 禁用深度测试
+          depthWrite: false, // 不写入深度缓冲区
           alphaTest: 0.1,
+          blending: THREE.NormalBlending, // 使用正常混合模式
         });
 
         let sprite = new THREE.Sprite(material);
@@ -251,9 +252,9 @@ function TPano(d) {
             geoOrigin.altitude
           );
 
-          // 将三维坐标投影到球面上（半径为501的球体，稍微向外偏移）
+          // 将三维坐标投影到球面上，并增加向外偏移距离（从501增加到505）
           const direction = threeDPos.normalize();
-          const spherePos = direction.multiplyScalar(501);
+          const spherePos = direction.multiplyScalar(505);
 
           sprite.position.copy(spherePos);
         }
@@ -266,16 +267,16 @@ function TPano(d) {
             position.z
           ).normalize();
 
-          // 沿着方向向量稍微向外偏移
+          // 沿着方向向量增加向外偏移距离（从0.91调整到0.95）
           sprite.position.set(
-            position.x * 0.91,
-            position.y * 0.91,
-            position.z * 0.91
+            position.x * 0.95,
+            position.y * 0.95,
+            position.z * 0.95
           );
         }
 
         sprite.scale.set(30, 30, 1);
-        sprite.renderOrder = 999; // 设置较高的渲染顺序
+        sprite.renderOrder = 9999; // 增加渲染顺序优先级
         sprite.name = "hotspot";
 
         for (let k = 0; k < d.photo.length; k++) {

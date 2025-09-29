@@ -24,13 +24,43 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
       {
         source: "main",
         geoReference: {
-          longitude: geoRef.longitude + 0.01, // 东经增加0.01度
-          latitude: geoRef.latitude, // 北纬增加0.01度
-          altitude: 10, // 高度增加100米
+          longitude: 118.928506,
+          latitude: 32.031822,
+          altitude: 10,
         },
         imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
-        jumpTo: "next-pano",
+        jumpTo: "A2",
       },
+      {
+        source: "main",
+        geoReference: {
+          longitude: 118.929427,
+          latitude: 32.025522,
+          altitude: 10,
+        },
+        imgUrl: "http://172.16.50.217:10081/image_api/source.png",
+        jumpTo: "泉水新村",
+      },
+      {
+        source: "main",
+        geoReference: {
+          longitude: 118.922261,
+          latitude: 32.027616,
+          altitude: 10,
+        },
+        imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
+        jumpTo: "中专",
+      },
+      // {
+      //   source: "main",
+      //   geoReference: {
+      //     longitude: 118.93671,
+      //     latitude: 32.029703,
+      //     altitude: 10,
+      //   },
+      //   imgUrl: "http://172.16.50.217:10081/image_api/source.png",
+      //   jumpTo: "泉水公寓",
+      // },
     ],
     rotateAnimateController: false,
     MouseController: false,
