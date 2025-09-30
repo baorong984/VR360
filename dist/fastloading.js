@@ -5,9 +5,9 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
 
   // 获取地理参考信息
   const geoRef = {
-    longitude: parseFloat(panoElement.getAttribute("data-lon")) || 118.931944,
-    latitude: parseFloat(panoElement.getAttribute("data-lat")) || 32.028096,
-    altitude: parseFloat(panoElement.getAttribute("data-alt")) || 10,
+    longitude: 118.930907,
+    latitude: 32.028434,
+    altitude: 10,
   };
 
   const pano = new TPano({
@@ -21,6 +21,16 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
       },
     ],
     hotspot: [
+      {
+        source: "main",
+        geoReference: {
+          longitude: 118.931902,
+          latitude: 32.028099,
+          altitude: 10,
+        },
+        imgUrl: "http://172.16.50.217:10081/image_api/icon1.png",
+        jumpTo: "A2",
+      },
       {
         source: "main",
         geoReference: {
@@ -41,26 +51,26 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
         imgUrl: "http://172.16.50.217:10081/image_api/source.png",
         jumpTo: "泉水新村",
       },
-      // {
-      //   source: "main",
-      //   geoReference: {
-      //     longitude: 118.922261,
-      //     latitude: 32.027616,
-      //     altitude: 10,
-      //   },
-      //   imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
-      //   jumpTo: "中专",
-      // },
-      // {
-      //   source: "main",
-      //   geoReference: {
-      //     longitude: 118.936728,
-      //     latitude: 32.029724,
-      //     altitude: 10,
-      //   },
-      //   imgUrl: "http://172.16.50.217:10081/image_api/source.png",
-      //   jumpTo: "泉水公寓",
-      // },
+      {
+        source: "main",
+        geoReference: {
+          longitude: 118.922261,
+          latitude: 32.027616,
+          altitude: 10,
+        },
+        imgUrl: "http://172.16.50.217:10081/image_api/simple.png",
+        jumpTo: "中专",
+      },
+      {
+        source: "main",
+        geoReference: {
+          longitude: 118.936728,
+          latitude: 32.029724,
+          altitude: 10,
+        },
+        imgUrl: "http://172.16.50.217:10081/image_api/source.png",
+        jumpTo: "泉水公寓",
+      },
     ],
     rotateAnimateController: false,
     MouseController: false,

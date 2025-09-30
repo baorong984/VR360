@@ -202,6 +202,8 @@ function TPano(d) {
         console.log(texture);
         material = new THREE.MeshBasicMaterial({ map: texture[i] });
         mesh.material = material;
+        // 在创建或更新mesh后添加旋转代码
+        mesh.rotation.y = (Math.PI / 180) * 160; // 170度（弧度制）
         cleanHotspot();
         if (d.hotspot != null) {
           initHotspot();
@@ -249,6 +251,8 @@ function TPano(d) {
             geoOrigin.latitude,
             geoOrigin.altitude
           );
+          // 补偿全景球的X轴翻转
+          threeDPos.x = -threeDPos.x;
 
           // 将三维坐标投影到球面上，并增加向外偏移距离（从501增加到505）
           const direction = threeDPos.normalize();
