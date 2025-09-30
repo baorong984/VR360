@@ -1,630 +1,653 @@
-/*
- * @Author: Maicro-bao baorong@airia.cn
- * @Description: 地理参考全景查看器 - 支持拍摄点经纬度配置
- * @FilePath: \VR360\dist\geopano.js
- */
-function GeoPano(config) {
-  // 选取渲染对象的根DOM
-  const el = document.getElementById(config.el);
-  const width = el.clientWidth;
-  const height = el.clientHeight;
+function TPano(d) {
+  //选取渲染对象的根dom
+  let el = document.getElementById(d.el);
+  var width = el.clientWidth;
+  var height = el.clientHeight;
 
-  // 参数处理与默认值
-  const params = {
-    DeviceOrientationControls: config.DeviceOrientationControls || false,
-    MouseController: config.MouseController !== false,
-    photo: config.photo || [],
-    hotspot: config.hotspot || [],
-    photoLoad: config.photoLoad || null,
-    switchLoad: config.switchLoad || null,
-    gyroSport: config.gyroSport || null,
-    debug: config.debug || false,
-    rotateAnimateController: config.rotateAnimateController || false,
-  };
+  //参数处理
+  if (d.DeviceOrientationControls == null) {
+    d.DeviceOrientationControls = false;
+  }
+  if (d.MouseController == null) {
+    d.MouseController = true;
+  }
 
-  // 初始化Three.js场景
+  //初始化场景、相机、渲染器
   const scene = new THREE.Scene();
-
-  // 根据设备类型设置FOV
-  const isMobile = el.clientWidth <= 700 || el.clientWidth < el.clientHeight;
-  const fov = isMobile ? 90 : 60;
-
+  let fov;
+  if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
+    //手机端视角
+    fov = 90;
+  } else {
+    //pc端视角
+    fov = 60;
+  }
   const camera = new THREE.PerspectiveCamera(fov, width / height, 0.1, 1000);
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: true,
+    // 添加以下设置
+    depth: true,
+    stencil: false,
+    preserveDrawingBuffer: false,
   });
-
   renderer.setSize(width, height);
   renderer.setClearColor(0x272727, 1.0);
   renderer.setPixelRatio(window.devicePixelRatio);
-  el.appendChild(renderer.domElement);
+  el.append(renderer.domElement);
 
-  // 创建全景球体
-  const geometry = new THREE.SphereBufferGeometry(500, 60, 40);
-  geometry.scale(-1, 1, 1); // 内外翻转
-  const mesh = new THREE.Mesh(geometry);
-  scene.add(mesh);
-
-  // 纹理加载管理
-  const textures = [];
-  let currentTextureIndex = 0;
-  let loadTextureLoaderCount = 0;
-
-  // 增强版经纬度映射工具函数
-  const CoordinateMapper = {
-    // 当前全景的拍摄点地理信息
-    currentGeoReference: null,
-
-    /**
-     * 设置当前拍摄点的地理参考
-     * @param {Object} geoRef - 地理参考信息
-     */
-    setGeoReference: function (geoRef) {
-      this.currentGeoReference = geoRef;
-    },
-
-    /**
-     * 获取当前拍摄点的地理参考
-     */
-    getGeoReference: function () {
-      return this.currentGeoReference;
-    },
-
-    /**
-     * 将绝对经纬度转换为相对于拍摄点的3D坐标
-     * @param {number} absLon - 绝对经度
-     * @param {number} absLat - 绝对纬度
-     * @param {number} radius - 球体半径 (默认: 500)
-     * @param {number} scale - 缩放系数 (默认: 0.9)
-     * @returns {THREE.Vector3} 3D坐标
-     */
-    absoluteLonLatToVector3: function (
-      absLon,
-      absLat,
-      radius = 500,
-      scale = 0.9
-    ) {
-      if (!this.currentGeoReference) {
-        console.warn("未设置拍摄点地理参考，使用默认转换");
-        return this.lonLatToVector3(absLon, absLat, radius, scale);
-      }
-
-      // 计算相对于拍摄点的偏移量（简化版，适用于小范围）
-      const deltaLon = absLon - this.currentGeoReference.longitude;
-      const deltaLat = absLat - this.currentGeoReference.latitude;
-
-      // 将地理偏移量转换为球面角度
-      // 注意：这是简化计算，实际需要考虑地球曲率，但对于全景应用通常足够
-      const lon =
-        deltaLon *
-        Math.cos((this.currentGeoReference.latitude * Math.PI) / 180);
-      const lat = deltaLat;
-
-      return this.lonLatToVector3(lon, lat, radius, scale);
-    },
-
-    /**
-     * 将相对角度转换为3D球面坐标（基础方法）
-     * @param {number} lon - 经度偏移量（度）
-     * @param {number} lat - 纬度偏移量（度）
-     * @param {number} radius - 球体半径
-     * @param {number} scale - 缩放系数
-     * @returns {THREE.Vector3} 3D坐标
-     */
-    lonLatToVector3: function (lon, lat, radius = 500, scale = 0.9) {
-      const effectiveRadius = radius * scale;
-
-      // 转换为球坐标
-      const phi = (90 - lat) * (Math.PI / 180); // 极角 (0 到 π)
-      const theta = (lon + 90) * (Math.PI / 180); // 方位角 (0 到 2π)
-
-      const x = effectiveRadius * Math.sin(phi) * Math.cos(theta);
-      const y = effectiveRadius * Math.cos(phi);
-      const z = effectiveRadius * Math.sin(phi) * Math.sin(theta);
-
-      return new THREE.Vector3(x, y, z);
-    },
-
-    /**
-     * 将3D坐标转换为相对于拍摄点的经纬度
-     * @param {THREE.Vector3} position - 3D坐标
-     * @param {number} radius - 球体半径
-     * @returns {Object} 包含绝对经纬度的对象
-     */
-    vector3ToAbsoluteLonLat: function (position, radius = 500) {
-      const relative = this.vector3ToLonLat(position, radius);
-
-      if (!this.currentGeoReference) {
-        return {
-          longitude: relative.longitude,
-          latitude: relative.latitude,
-          relative: relative,
-        };
-      }
-
-      // 将相对坐标转换回绝对坐标
-      const absLon =
-        this.currentGeoReference.longitude +
-        relative.longitude /
-          Math.cos((this.currentGeoReference.latitude * Math.PI) / 180);
-      const absLat = this.currentGeoReference.latitude + relative.latitude;
-
-      return {
-        longitude: absLon,
-        latitude: absLat,
-        relative: relative,
-      };
-    },
-
-    /**
-     * 将3D坐标转换为相对经纬度（基础方法）
-     */
-    vector3ToLonLat: function (position, radius = 500) {
-      const { x, y, z } = position;
-
-      const actualRadius = Math.sqrt(x * x + y * y + z * z);
-      const lon = Math.atan2(z, x);
-      const lat = Math.asin(y / actualRadius);
-
-      const longitude_deg = THREE.MathUtils.radToDeg(lon);
-      const latitude_deg = THREE.MathUtils.radToDeg(lat);
-
-      const u = (lon + Math.PI) / (2 * Math.PI);
-      const v = (Math.PI / 2 - lat) / Math.PI;
-
-      return {
-        longitude: longitude_deg,
-        latitude: latitude_deg,
-        uv: { u, v },
-        radians: { lon, lat },
-      };
-    },
-
-    /**
-     * 计算两个绝对经纬度点之间的距离（米）
-     * @param {number} lon1 - 起点经度
-     * @param {number} lat1 - 起点纬度
-     * @param {number} lon2 - 终点经度
-     * @param {number} lat2 - 终点纬度
-     * @returns {number} 距离（米）
-     */
-    calculateDistance: function (lon1, lat1, lon2, lat2) {
-      const R = 6371000; // 地球半径（米）
-      const dLat = ((lat2 - lat1) * Math.PI) / 180;
-      const dLon = ((lon2 - lon1) * Math.PI) / 180;
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lat1 * Math.PI) / 180) *
-          Math.cos((lat2 * Math.PI) / 180) *
-          Math.sin(dLon / 2) *
-          Math.sin(dLon / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    },
-
-    /**
-     * 计算从拍摄点到目标点的方位角
-     * @param {number} targetLon - 目标点经度
-     * @param {number} targetLat - 目标点纬度
-     * @returns {number} 方位角（度，0=北，90=东）
-     */
-    calculateBearing: function (targetLon, targetLat) {
-      if (!this.currentGeoReference) return 0;
-
-      const startLat = (this.currentGeoReference.latitude * Math.PI) / 180;
-      const startLon = (this.currentGeoReference.longitude * Math.PI) / 180;
-      const endLat = (targetLat * Math.PI) / 180;
-      const endLon = (targetLon * Math.PI) / 180;
-
-      const y = Math.sin(endLon - startLon) * Math.cos(endLat);
-      const x =
-        Math.cos(startLat) * Math.sin(endLat) -
-        Math.sin(startLat) * Math.cos(endLat) * Math.cos(endLon - startLon);
-      const bearing = Math.atan2(y, x);
-
-      return ((bearing * 180) / Math.PI + 360) % 360;
-    },
+  //地理坐标原点（全景拍摄点）
+  let geoOrigin = {
+    longitude: d.geoReference?.longitude || 0,
+    latitude: d.geoReference?.latitude || 0,
+    altitude: d.geoReference?.altitude || 0,
   };
 
-  // 加载纹理
-  function loadTextureLoader(index) {
-    if (index >= params.photo.length) return;
+  /**
+   * 将地理坐标(经纬度,高度)转换为三维坐标(x,y,z)
+   */
+  function geoTo3D(
+    longitude,
+    latitude,
+    altitude,
+    originLon,
+    originLat,
+    originAlt
+  ) {
+    const R = 6371000; // 地球半径(米)
 
-    const photo = params.photo[index];
+    // 将经纬度转换为弧度
+    const lonRad = THREE.MathUtils.degToRad(longitude);
+    const latRad = THREE.MathUtils.degToRad(latitude);
+    const originLonRad = THREE.MathUtils.degToRad(originLon);
+    const originLatRad = THREE.MathUtils.degToRad(originLat);
 
-    if (photo.type === "VIDEO") {
-      // 视频纹理处理
-      const videoHtml = `<video id="video-${index}" loop muted style="display: none;" crossOrigin="anonymous" playsinline>
-        <source src="${photo.url}">
-      </video>`;
-      el.insertAdjacentHTML("beforeend", videoHtml);
+    // 计算相对于原点的偏移量
+    const deltaLon = lonRad - originLonRad;
+    const deltaLat = latRad - originLatRad;
 
-      const videoDom = document.getElementById(`video-${index}`);
+    // 使用平面近似（适用于小范围）
+    // 高度方向：y轴正方向（上）
+    const x = deltaLon * R * Math.cos(originLatRad);
+    const z = deltaLat * R;
+    const y = altitude - originAlt;
+
+    return new THREE.Vector3(x, y, z);
+  }
+
+  //生成全景图片3D对象
+  const geometry = new THREE.SphereBufferGeometry(500, 60, 40);
+  geometry.scale(-1, 1, 1);
+  let mesh = new THREE.Mesh(geometry);
+  scene.add(mesh);
+  var texture = Array();
+  let loadTextureLoaderCount = 0;
+  loadTextureLoader(loadTextureLoaderCount);
+
+  function loadTextureLoader(i) {
+    if (d.photo[i].type == "VIDEO") {
+      el.insertAdjacentHTML(
+        "beforeend",
+        '<video id="video-' +
+          i +
+          '" loop muted style="display: none;" crossOrigin="anonymous" playsinline ><source src="' +
+          d.photo[i].url +
+          '"></video>'
+      );
+      let videoId = "video-" + i;
+      let videoDom = document.getElementById(videoId);
       videoDom.play();
-      textures[index] = new THREE.VideoTexture(videoDom);
-
-      setTimeout(() => loadTextureLoaderEnd(index), 2000);
+      texture[i] = new THREE.VideoTexture(videoDom);
+      setTimeout(() => {
+        loadTextureLoaderEnd();
+      }, 2000);
     } else {
-      // 图片纹理处理
-      textures[index] = new THREE.TextureLoader().load(
-        photo.url,
-        () => loadTextureLoaderEnd(index),
-        null,
-        (err) => console.error("纹理加载错误:", err)
+      texture[i] = new THREE.TextureLoader().load(
+        d.photo[i].url,
+        function () {
+          loadTextureLoaderEnd();
+        },
+        function (e) {
+          console.log(e);
+        },
+        function (err) {
+          console.error("An error happened.");
+        }
       );
     }
   }
 
-  function loadTextureLoaderEnd(index) {
-    const photo = params.photo[index];
-    textures[index].panoName = photo.name;
-
-    // 设置当前全景的地理参考
-    if (photo.geoReference) {
-      CoordinateMapper.setGeoReference(photo.geoReference);
-    }
-
-    const loadMsg = {
-      all: params.photo.length,
+  var loadTextureMsg;
+  function loadTextureLoaderEnd() {
+    let i = loadTextureLoaderCount;
+    console.log(texture);
+    texture[i].panoName = d.photo[i].name;
+    loadTextureMsg = {
+      all: d.photo.length,
       loading: {
-        id: index + 1,
-        name: photo.name,
-        geoReference: photo.geoReference, // 包含地理信息
+        id: i + 1,
+        name: d.photo[i].name,
       },
-      leftover: params.photo.length - index - 1,
+      Leftover: d.photo.length - i - 1,
     };
-
-    if (params.photoLoad) {
-      params.photoLoad(loadMsg);
+    if (d.photoLoad != null) {
+      d.photoLoad(loadTextureMsg);
     }
-
-    if (index === 0) {
+    if (loadTextureLoaderCount == 0) {
       switchPhotoN(0);
     }
-
-    if (index < params.photo.length - 1) {
+    if (loadTextureLoaderCount < d.photo.length - 1) {
       loadTextureLoader(++loadTextureLoaderCount);
     }
   }
 
-  // 切换全景照片
-  function switchPhotoN(index) {
-    if (index < 0 || index >= params.photo.length) {
-      return { status: "ERROR", msg: "无效的照片索引" };
-    }
-
-    const photo = params.photo[index];
-
-    // 检查加载状态
-    const loadedCount = loadTextureLoaderCount + 1;
-    if (loadedCount < index + 1) {
-      if (params.switchLoad) {
-        params.switchLoad({
-          loading: { id: index + 1, name: photo.name },
-          status: "loading",
-        });
-      }
-      setTimeout(() => switchPhotoN(index), 1000);
-      return { status: "LOADING", msg: "图片加载中" };
-    }
-
-    // 设置相机FOV
-    let targetFov;
-    if (photo.geoReference && photo.geoReference.fov) {
-      if (isMobile && photo.geoReference.fov.phone) {
-        targetFov = photo.geoReference.fov.phone;
-      } else if (!isMobile && photo.geoReference.fov.pc) {
-        targetFov = photo.geoReference.fov.pc;
-      }
-    }
-
-    if (!targetFov) {
-      targetFov = isMobile ? 90 : 60;
-    }
-
-    camera.fov = targetFov;
-    camera.updateProjectionMatrix();
-
-    // 应用新纹理
-    const material = new THREE.MeshBasicMaterial({ map: textures[index] });
-    mesh.material = material;
-
-    // 设置新的地理参考
-    if (photo.geoReference) {
-      CoordinateMapper.setGeoReference(photo.geoReference);
-    }
-
-    // 清理并重新创建热点
-    cleanHotspot();
-    if (params.hotspot.length > 0) {
-      initHotspot();
-    }
-
-    currentTextureIndex = index;
-
-    if (params.switchLoad) {
-      params.switchLoad({
-        loading: {
-          id: index + 1,
-          name: photo.name,
-          geoReference: photo.geoReference,
-        },
-        status: "end",
-      });
-    }
-
-    return {
-      status: "OK",
-      msg: "切换成功",
-      geoReference: photo.geoReference,
+  function switchPhotoN(i) {
+    let response = {
+      status: "ERROR",
+      msg: "系统出错",
     };
-  }
 
-  // 初始化热点（使用绝对经纬度）
-  let hotspotAnimateCount = 1;
-  const hotspotOriginalY = [];
-
-  function initHotspot() {
-    const currentPanoName = mesh.material.map.panoName;
-
-    params.hotspot.forEach((hotspot, j) => {
-      if (hotspot.source === currentPanoName) {
-        createHotspotFromAbsoluteLonLat(hotspot);
+    if (i < d.photo.length && i >= 0) {
+      if (loadTextureMsg.all - loadTextureMsg.Leftover >= i + 1) {
+        if (d.switchLoad != null) {
+          d.switchLoad({
+            loading: {
+              id: i + 1,
+              name: d.photo[i].name,
+            },
+            status: "end",
+          });
+        }
+        switchGo();
+      } else {
+        if (d.switchLoad != null) {
+          d.switchLoad({
+            loading: {
+              id: i + 1,
+              name: d.photo[i].name,
+            },
+            status: "loading",
+          });
+        }
+        setTimeout(switchPhotoN, 1000, i);
       }
-    });
-  }
 
-  /**
-   * 根据绝对经纬度创建热点
-   */
-  function createHotspotFromAbsoluteLonLat(hotspotConfig) {
-    const map = new THREE.TextureLoader().load(hotspotConfig.imgUrl);
-    const material = new THREE.SpriteMaterial({ map: map });
-    const sprite = new THREE.Sprite(material);
-
-    // 使用绝对经纬度计算3D位置
-    let position;
-    if (
-      hotspotConfig.targetLon !== undefined &&
-      hotspotConfig.targetLat !== undefined
-    ) {
-      position = CoordinateMapper.absoluteLonLatToVector3(
-        hotspotConfig.targetLon,
-        hotspotConfig.targetLat
-      );
-
-      // 计算距离和方位角（用于调试或显示）
-      const distance = CoordinateMapper.calculateDistance(
-        CoordinateMapper.currentGeoReference.longitude,
-        CoordinateMapper.currentGeoReference.latitude,
-        hotspotConfig.targetLon,
-        hotspotConfig.targetLat
-      );
-
-      const bearing = CoordinateMapper.calculateBearing(
-        hotspotConfig.targetLon,
-        hotspotConfig.targetLat
-      );
-
-      console.log(
-        `热点距离: ${distance.toFixed(2)}米, 方位角: ${bearing.toFixed(2)}°`
-      );
-    } else if (hotspotConfig.position) {
-      // 向后兼容：使用已有的3D坐标
-      position = new THREE.Vector3(
-        hotspotConfig.position.x * 0.9,
-        hotspotConfig.position.y * 0.9,
-        hotspotConfig.position.z * 0.9
-      );
+      function switchGo() {
+        let fov;
+        if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
+          try {
+            fov = d.photo[i].fov.phone;
+          } catch (error) {
+            fov = null;
+          }
+        } else {
+          try {
+            fov = d.photo[i].fov.pc;
+          } catch (error) {
+            fov = null;
+          }
+        }
+        if (fov != null) {
+          camera.fov = fov;
+          camera.updateProjectionMatrix();
+        } else {
+          if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
+            fov = 90;
+          } else {
+            fov = 60;
+          }
+          camera.fov = fov;
+          camera.updateProjectionMatrix();
+        }
+        console.log(texture);
+        material = new THREE.MeshBasicMaterial({ map: texture[i] });
+        mesh.material = material;
+        // 在创建或更新mesh后添加旋转代码
+        mesh.rotation.y = (Math.PI / 180) * 160; // 170度（弧度制）
+        cleanHotspot();
+        if (d.hotspot != null) {
+          initHotspot();
+        }
+        response = {
+          status: "OK",
+          msg: "切换成功",
+        };
+      }
     } else {
-      console.warn("热点配置缺少位置信息:", hotspotConfig);
-      return;
+      response.msg = "无效的照片索引";
     }
 
-    sprite.position.copy(position);
-    sprite.scale.set(30, 30, 1);
-    sprite.name = "hotspot";
+    return response;
+  }
 
-    // 设置跳转目标
-    for (let k = 0; k < params.photo.length; k++) {
-      if (params.photo[k].name === hotspotConfig.jumpTo) {
-        sprite.jumpTo = k;
-        break;
+  //生成热点
+  let hotspotAnimate_count = 1;
+  let hotspotAnimate_temp = Array();
+  function initHotspot() {
+    for (let j = 0; j < d.hotspot.length; j++) {
+      if (mesh.material.map.panoName == d.hotspot[j].source) {
+        let map = new THREE.TextureLoader().load(d.hotspot[j].imgUrl);
+
+        // 优化的材质设置，防止热点被遮住
+        let material = new THREE.SpriteMaterial({
+          map: map,
+          transparent: true,
+          depthTest: false, // 禁用深度测试
+          depthWrite: false, // 不写入深度缓冲区
+          alphaTest: 0.1,
+          blending: THREE.NormalBlending, // 使用正常混合模式
+        });
+
+        let sprite = new THREE.Sprite(material);
+
+        // 处理地理坐标热点
+        if (d.hotspot[j].geoReference) {
+          const geoPos = d.hotspot[j].geoReference;
+          const threeDPos = geoTo3D(
+            geoPos.longitude,
+            geoPos.latitude,
+            geoPos.altitude,
+            geoOrigin.longitude,
+            geoOrigin.latitude,
+            geoOrigin.altitude
+          );
+          // 补偿全景球的X轴翻转
+          threeDPos.x = -threeDPos.x;
+
+          // 将三维坐标投影到球面上，并增加向外偏移距离（从501增加到505）
+          const direction = threeDPos.normalize();
+          const spherePos = direction.multiplyScalar(505);
+
+          sprite.position.copy(spherePos);
+        }
+        // 处理传统的三维坐标热点（向后兼容）
+        else if (d.hotspot[j].position) {
+          const position = d.hotspot[j].position;
+          const direction = new THREE.Vector3(
+            position.x,
+            position.y,
+            position.z
+          ).normalize();
+
+          // 沿着方向向量增加向外偏移距离（从0.91调整到0.95）
+          sprite.position.set(
+            position.x * 0.95,
+            position.y * 0.95,
+            position.z * 0.95
+          );
+        }
+
+        sprite.scale.set(30, 30, 1);
+        sprite.renderOrder = 9999; // 增加渲染顺序优先级
+        sprite.name = "hotspot";
+
+        //绑定额外的属性
+        sprite.details = d.hotspot[j].details;
+        //绑定跳转属性
+        sprite.jumpTo = d.hotspot[j].jumpTo ? true : false;
+        scene.add(sprite);
       }
     }
 
-    // 存储地理信息用于调试
-    sprite.userData = {
-      targetLon: hotspotConfig.targetLon,
-      targetLat: hotspotConfig.targetLat,
-      config: hotspotConfig,
-      type: "absolute_coordinate",
-    };
-
-    scene.add(sprite);
-    hotspotOriginalY.push(sprite.position.y);
+    for (let i = 0; i < scene.children.length; i++) {
+      if (scene.children[i].name == "hotspot") {
+        hotspotAnimate_temp[i] = scene.children[i].position.y;
+      }
+    }
   }
 
-  // 清理热点
+  //清除热点
   function cleanHotspot() {
-    const children = scene.children;
-    for (let i = children.length - 1; i >= 0; i--) {
-      if (children[i].name === "hotspot") {
-        scene.remove(children[i]);
+    let children = scene.children;
+    for (let i = 0; i < children.length; i++) {
+      if (children[i].name == "hotspot") {
+        scene.children.splice(i, 1);
+        i--;
       }
     }
-    hotspotOriginalY.length = 0;
   }
 
-  // 设备方向控制
-  let deviceControl;
+  //体感控制
+  let devicecontrol;
   try {
-    deviceControl = new THREE.DeviceOrientationControls(camera);
+    devicecontrol = new THREE.DeviceOrientationControls(camera);
   } catch (error) {
-    deviceControl = null;
-    if (params.gyroSport) {
-      params.gyroSport(false);
-    }
+    devicecontrol = null;
   }
 
-  // 初始化控制器（简化版）
-  function initMouseController() {
-    console.log("鼠标控制器已初始化");
-  }
+  //启动鼠标控制
+  mouseController();
+  //启动多点触控
+  phoneController();
 
-  function initTouchController() {
-    console.log("触摸控制器已初始化");
-  }
-
-  // 动画循环
+  //动画绑定
   function animate() {
     requestAnimationFrame(animate);
-    animateHotspots();
+
+    //热点摆动
+    for (let i = 0; i < scene.children.length; i++) {
+      if (scene.children[i].name == "hotspot") {
+        if (hotspotAnimate_count >= 400) {
+          hotspotAnimate_count = 1;
+          scene.children[i].position.y = hotspotAnimate_temp[i];
+        }
+
+        if (hotspotAnimate_count <= 200) {
+          scene.children[i].position.y = scene.children[i].position.y + 0.04;
+        } else {
+          scene.children[i].position.y = scene.children[i].position.y - 0.04;
+        }
+
+        hotspotAnimate_count++;
+      }
+    }
+
     render();
   }
   animate();
 
-  // 热点动画
-  function animateHotspots() {
-    let hotspotIndex = 0;
-
-    for (let i = 0; i < scene.children.length; i++) {
-      if (scene.children[i].name === "hotspot") {
-        const hotspot = scene.children[i];
-
-        if (hotspotAnimateCount >= 400) {
-          hotspotAnimateCount = 1;
-          hotspot.position.y = hotspotOriginalY[hotspotIndex];
-        }
-
-        if (hotspotAnimateCount <= 200) {
-          hotspot.position.y += 0.04;
-        } else {
-          hotspot.position.y -= 0.04;
-        }
-
-        hotspotAnimateCount++;
-        hotspotIndex++;
+  //镜头自由旋转
+  let anglexoz = -90;
+  var rotateAnimateController = d.rotateAnimateController;
+  function rotateAnimate() {
+    if (
+      rotateAnimateController == true &&
+      d.DeviceOrientationControls == false
+    ) {
+      anglexoz += 0.1;
+      if (anglexoz > 360) {
+        anglexoz = 0;
       }
+      let x = Math.cos((anglexoz * Math.PI) / 180) * 500;
+      let z = Math.sin((anglexoz * Math.PI) / 180) * 500;
+      camera.lookAt(x, 0, z);
+    }
+  }
+  setInterval(rotateAnimate, 1000 / 60);
+
+  el.addEventListener("pointerdown", function () {
+    if (d.MouseController) {
+      rotateAnimateController = false;
+    }
+  });
+
+  //手机端多点触控
+  let mouseFovControllerSport = true;
+  function phoneController() {
+    let oldL = 0;
+    let x1, x2, y1, y2, l;
+    document.addEventListener(
+      "touchstart",
+      function (event) {
+        if (!d.MouseController) {
+          return;
+        }
+        if (event.touches.length == 2) {
+          mouseFovControllerSport = false;
+          x1 = event.touches[0].clientX;
+          x2 = event.touches[1].clientX;
+          y1 = event.touches[0].clientY;
+          y2 = event.touches[1].clientY;
+          oldL = Math.sqrt(
+            Math.pow(Math.abs(x2 - x1), 2) + Math.pow(Math.abs(y2 - y1), 2)
+          );
+        } else {
+          mouseFovControllerSport = true;
+        }
+      },
+      false
+    );
+    document.addEventListener(
+      "touchmove",
+      function (event) {
+        if (!d.MouseController) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.touches.length == 2) {
+          x1 = event.touches[0].clientX;
+          x2 = event.touches[1].clientX;
+          y1 = event.touches[0].clientY;
+          y2 = event.touches[1].clientY;
+
+          l = Math.sqrt(
+            Math.pow(Math.abs(x2 - x1), 2) + Math.pow(Math.abs(y2 - y1), 2)
+          );
+
+          let lAdd = l - oldL;
+          oldL = l;
+
+          console.log(lAdd);
+          const fov = camera.fov - lAdd * 0.3;
+          camera.fov = THREE.MathUtils.clamp(fov, 10, 90);
+          camera.updateProjectionMatrix();
+        }
+      },
+      false
+    );
+  }
+
+  //封装鼠标控制
+  function mouseController() {
+    let isUserInteracting = false,
+      onPointerDownMouseX = 0,
+      onPointerDownMouseY = 0,
+      lon = -90,
+      onPointerDownLon = 0,
+      lat = 0,
+      onPointerDownLat = 0,
+      phi = 0,
+      theta = 0;
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    function onMouseMove(event) {
+      if (!d.MouseController) {
+        return;
+      }
+      mouse.x = (event.clientX / el.clientWidth) * 2 - 1;
+      mouse.y = -(event.clientY / el.clientHeight) * 2 + 1;
+      render();
+    }
+
+    let clientX, clientY;
+    el.addEventListener("pointerdown", function (event) {
+      if (!d.MouseController) {
+        return;
+      }
+      clientX = event.clientX;
+      clientY = event.clientY;
+    });
+    el.addEventListener("pointerup", function (event) {
+      if (!d.MouseController) {
+        return;
+      }
+      var distance = Math.sqrt(
+        Math.pow(Math.abs(event.clientX - clientX), 2) +
+          Math.pow(Math.abs(event.clientY - clientY), 2)
+      );
+      if (distance <= 10) {
+        positionClick();
+      }
+    });
+
+    function positionClick() {
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(scene.children);
+      for (let i = 0; i < intersects.length; i++) {
+        const item = intersects[i].object;
+        if (d.debug == true && item.jumpTo == true && item.name == "hotspot") {
+          //点击的热点，判断是否有跳转
+          console.warn("点击了热点：", intersects[i].object.details);
+        }
+      }
+    }
+
+    el.style.touchAction = "none";
+    el.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("wheel", onDocumentMouseWheel);
+
+    lon = -1 * THREE.MathUtils.radToDeg(camera.rotation.y) - 90;
+    lat = THREE.MathUtils.radToDeg(camera.rotation.x);
+
+    function onPointerDown(event) {
+      if (!d.MouseController) {
+        return;
+      }
+
+      onMouseMove(event);
+      if (event.isPrimary === false) return;
+      isUserInteracting = true;
+
+      onPointerDownMouseX = event.clientX;
+      onPointerDownMouseY = event.clientY;
+
+      onPointerDownLon = lon;
+      onPointerDownLat = lat;
+
+      document.addEventListener("pointermove", onPointerMove);
+      document.addEventListener("pointerup", onPointerUp);
+    }
+
+    function onPointerMove(event) {
+      if (!d.MouseController) {
+        return;
+      }
+      if (event.isPrimary === false) return;
+      let rate;
+      if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
+        rate = 0.4;
+      } else {
+        rate = 0.1;
+      }
+
+      if (mouseFovControllerSport) {
+        lon = (onPointerDownMouseX - event.clientX) * rate + onPointerDownLon;
+        lat = (event.clientY - onPointerDownMouseY) * rate + onPointerDownLat;
+        update();
+      }
+    }
+
+    function onPointerUp() {
+      if (!d.MouseController) {
+        return;
+      }
+      if (event.isPrimary === false) return;
+      isUserInteracting = false;
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+    }
+
+    function onDocumentMouseWheel(event) {
+      if (!d.MouseController) {
+        return;
+      }
+      const fov = camera.fov + event.deltaY * 0.05;
+      camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
+      camera.updateProjectionMatrix();
+    }
+
+    function update() {
+      if (isUserInteracting === false) {
+      }
+      lat = Math.max(-85, Math.min(85, lat));
+      phi = THREE.MathUtils.degToRad(90 - lat);
+      theta = THREE.MathUtils.degToRad(lon);
+      const x = 500 * Math.sin(phi) * Math.cos(theta);
+      const y = 500 * Math.cos(phi);
+      const z = 500 * Math.sin(phi) * Math.sin(theta);
+      camera.lookAt(x, y, z);
     }
   }
 
-  // 渲染函数
+  //渲染
   function render() {
-    if (params.DeviceOrientationControls && deviceControl) {
-      deviceControl.update();
+    if (d.DeviceOrientationControls == true) {
+      if (
+        camera.rotation._x == -1.5707963267948966 &&
+        camera.rotation._y == 0 &&
+        camera.rotation._z == 0
+      ) {
+        d.gyroSport(false);
+      } else {
+        d.gyroSport(true);
+      }
+      devicecontrol.update();
     }
     renderer.render(scene, camera);
   }
 
-  // 公共API
-  this.api = {
+  //创建外部访问接口函数
+  this.re = {
     /**
-     * 切换全景照片
+     * 宽高重设
      */
-    switchPhoto: function (index) {
-      return switchPhotoN(index - 1);
+    resizeRendererToDisplaySize: function resizeRendererToDisplaySize(
+      width,
+      height
+    ) {
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height, false);
+      el.style.width = width + "px";
+      el.style.height = height + "px";
+      renderer.domElement.style.width = width + "px";
+      renderer.domElement.style.height = height + "px";
     },
 
     /**
-     * 切换陀螺仪控制
+     * 全景照片切换函数
      */
-    switchGyro: function (enable) {
-      params.DeviceOrientationControls = enable;
+    switchPhoto: function switchPhoto(i) {
+      return switchPhotoN(i - 1);
+    },
+
+    /**
+     * 切换体感
+     */
+    switchGyro: function switchGyro(e) {
+      d.DeviceOrientationControls = e;
     },
 
     /**
      * 切换鼠标控制
      */
-    switchMouseController: function (enable) {
-      params.MouseController = enable;
+    seitchMouseController: function seitchMouseController(e) {
+      d.MouseController = e;
     },
 
     /**
-     * 调整渲染器尺寸
+     * 地理坐标转三维坐标
      */
-    resize: function (width, height) {
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-      renderer.setSize(width, height, false);
-    },
-
-    /**
-     * 获取坐标映射器
-     */
-    getCoordinateMapper: function () {
-      return CoordinateMapper;
-    },
-
-    /**
-     * 在指定绝对经纬度添加热点
-     */
-    addHotspot: function (absLon, absLat, imgUrl, jumpTo) {
-      const hotspotConfig = {
-        source: mesh.material.map.panoName,
-        targetLon: absLon,
-        targetLat: absLat,
-        imgUrl: imgUrl,
-        jumpTo: jumpTo,
-      };
-
-      createHotspotFromAbsoluteLonLat(hotspotConfig);
-    },
-
-    /**
-     * 获取当前拍摄点的地理信息
-     */
-    getCurrentGeoReference: function () {
-      return CoordinateMapper.getGeoReference();
-    },
-
-    /**
-     * 获取当前视角对应的绝对经纬度
-     */
-    getCurrentViewAbsoluteLonLat: function () {
-      const direction = new THREE.Vector3();
-      camera.getWorldDirection(direction);
-      direction.multiplyScalar(500);
-
-      return CoordinateMapper.vector3ToAbsoluteLonLat(direction);
-    },
-
-    /**
-     * 将相机看向指定绝对经纬度
-     */
-    lookAtAbsoluteLonLat: function (absLon, absLat) {
-      const target = CoordinateMapper.absoluteLonLatToVector3(absLon, absLat);
-      camera.lookAt(target);
-    },
-
-    /**
-     * 计算到指定经纬度的距离和方位
-     */
-    calculateTargetInfo: function (targetLon, targetLat) {
-      if (!CoordinateMapper.currentGeoReference) {
-        return { distance: 0, bearing: 0 };
-      }
-
-      const distance = CoordinateMapper.calculateDistance(
-        CoordinateMapper.currentGeoReference.longitude,
-        CoordinateMapper.currentGeoReference.latitude,
-        targetLon,
-        targetLat
+    geoTo3D: function (longitude, latitude, altitude) {
+      return geoTo3D(
+        longitude,
+        latitude,
+        altitude,
+        geoOrigin.longitude,
+        geoOrigin.latitude,
+        geoOrigin.altitude
       );
+    },
 
-      const bearing = CoordinateMapper.calculateBearing(targetLon, targetLat);
+    /**
+     * 三维坐标转地理坐标
+     */
+    threeDToGeo: function (x, y, z) {
+      const R = 6371000;
+      const originLonRad = THREE.MathUtils.degToRad(geoOrigin.longitude);
+      const originLatRad = THREE.MathUtils.degToRad(geoOrigin.latitude);
 
-      return { distance, bearing };
+      const deltaLon = x / (R * Math.cos(originLatRad));
+      const deltaLat = z / R;
+
+      const longitude =
+        geoOrigin.longitude + THREE.MathUtils.radToDeg(deltaLon);
+      const latitude = geoOrigin.latitude + THREE.MathUtils.radToDeg(deltaLat);
+      const altitude = geoOrigin.altitude + y;
+
+      return { longitude, latitude, altitude };
     },
   };
-
-  // 开始加载纹理
-  if (params.photo.length > 0) {
-    loadTextureLoader(loadTextureLoaderCount);
-  }
-
-  // 初始化控制器
-  initMouseController();
-  initTouchController();
 }

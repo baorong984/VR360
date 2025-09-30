@@ -29,7 +29,11 @@ for (let i = 0; i < document.getElementsByTagName("tpano").length; i++) {
           altitude: 10,
         },
         imgUrl: "http://172.16.50.217:10081/image_api/icon1.png",
-        jumpTo: "A2",
+        jumpTo: true,
+        details: {
+          title: "10kV1057精汽线032-015号杆养殖小区1分支线#002",
+          content: "A2",
+        },
       },
       {
         source: "main",
