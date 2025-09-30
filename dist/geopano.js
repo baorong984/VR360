@@ -1,15 +1,22 @@
-function TPano(d) {
+function TPano(dobj) {
   //选取渲染对象的根dom
-  let el = document.getElementById(d.el);
+  let el = document.getElementById(dobj.el);
   var width = el.clientWidth;
   var height = el.clientHeight;
 
+  //地理坐标原点（全景拍摄点）
+  let geoOrigin = {
+    longitude: 0,
+    latitude: 0,
+    altitude: 0,
+  };
+
   //参数处理
-  if (d.DeviceOrientationControls == null) {
-    d.DeviceOrientationControls = false;
+  if (dobj.DeviceOrientationControls == null) {
+    dobj.DeviceOrientationControls = false;
   }
-  if (d.MouseController == null) {
-    d.MouseController = true;
+  if (dobj.MouseController == null) {
+    dobj.MouseController = true;
   }
 
   //初始化场景、相机、渲染器
@@ -36,12 +43,164 @@ function TPano(d) {
   renderer.setPixelRatio(window.devicePixelRatio);
   el.append(renderer.domElement);
 
-  //地理坐标原点（全景拍摄点）
-  let geoOrigin = {
-    longitude: d.geoReference?.longitude || 0,
-    latitude: d.geoReference?.latitude || 0,
-    altitude: d.geoReference?.altitude || 0,
-  };
+  //生成全景图片3D对象
+  const geometry = new THREE.SphereBufferGeometry(500, 60, 40);
+  geometry.scale(-1, 1, 1);
+  let mesh = new THREE.Mesh(geometry);
+  scene.add(mesh);
+  var texture = Array();
+  let loadTextureLoaderCount = 0;
+  loadTextureLoader(loadTextureLoaderCount);
+
+  function loadTextureLoader(i) {
+    if (dobj.photo[i].type == "VIDEO") {
+      el.insertAdjacentHTML(
+        "beforeend",
+        '<video id="video-' +
+          i +
+          '" loop muted style="display: none;" crossOrigin="anonymous" playsinline ><source src="' +
+          dobj.photo[i].url +
+          '"></video>'
+      );
+      let videoId = "video-" + i;
+      let videoDom = document.getElementById(videoId);
+      videoDom.play();
+      texture[i] = new THREE.VideoTexture(videoDom);
+      setTimeout(() => {
+        loadTextureLoaderEnd(dobj.photo[i]);
+      }, 2000);
+    } else {
+      texture[i] = new THREE.TextureLoader().load(
+        dobj.photo[i].url,
+        function () {
+          loadTextureLoaderEnd(dobj.photo[i]);
+        },
+        function (e) {
+          console.log(e);
+        },
+        function (err) {
+          console.error("An error happened.");
+        }
+      );
+    }
+  }
+
+  /**
+   *@description: 加载纹理完成回调
+   *@param:
+   *@return: void
+   *@author:  baorong
+   *@Date: 2025-09-30 14:02:25
+   */
+  var loadTextureMsg;
+  function loadTextureLoaderEnd(photo) {
+    let i = loadTextureLoaderCount;
+    const photo_name = photo.name;
+    texture[i].panoName = photo_name;
+
+    loadTextureMsg = {
+      all: dobj.photo.length,
+      loading: {
+        id: i + 1,
+        name: photo_name,
+      },
+      Leftover: dobj.photo.length - i - 1,
+    };
+    if (dobj.photoLoad != null) {
+      dobj.photoLoad(loadTextureMsg);
+    }
+    if (loadTextureLoaderCount == 0) {
+      switchPhotoN(0);
+    }
+    if (loadTextureLoaderCount < dobj.photo.length - 1) {
+      loadTextureLoader(++loadTextureLoaderCount);
+    }
+  }
+
+  function switchGo(i) {
+    let photo = dobj.photo[i];
+    //初始化中心经纬度
+    geoOrigin.longitude = photo.geoReference?.longitude || 0;
+    geoOrigin.latitude = photo.geoReference?.latitude || 0;
+    geoOrigin.altitude = photo.geoReference?.altitude || 0;
+
+    let fov;
+    if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
+      try {
+        fov = photo.fov.phone;
+      } catch (error) {
+        fov = null;
+      }
+    } else {
+      try {
+        fov = photo.fov.pc;
+      } catch (error) {
+        fov = null;
+      }
+    }
+    if (fov != null) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    } else {
+      if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
+        fov = 90;
+      } else {
+        fov = 60;
+      }
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
+    console.log(texture);
+    material = new THREE.MeshBasicMaterial({ map: texture[i] });
+    mesh.material = material;
+    // 在创建或更新mesh后添加旋转代码
+    mesh.rotation.y = (Math.PI / 180) * 160; // 170度（弧度制）
+    cleanHotspot();
+    if (dobj.hotspot != null) {
+      initHotspot(dobj.photo[i].img_id);
+    }
+    response = {
+      status: "OK",
+      msg: "切换成功",
+    };
+  }
+
+  function switchPhotoN(i) {
+    let response = {
+      status: "ERROR",
+      msg: "系统出错",
+    };
+
+    if (i < dobj.photo.length && i >= 0) {
+      if (loadTextureMsg.all - loadTextureMsg.Leftover >= i + 1) {
+        if (dobj.switchLoad != null) {
+          dobj.switchLoad({
+            loading: {
+              id: i + 1,
+              name: dobj.photo[i].name,
+            },
+            status: "end",
+          });
+        }
+        switchGo(i);
+      } else {
+        if (dobj.switchLoad != null) {
+          dobj.switchLoad({
+            loading: {
+              id: i + 1,
+              name: dobj.photo[i].name,
+            },
+            status: "loading",
+          });
+        }
+        setTimeout(switchPhotoN, 1000, i);
+      }
+    } else {
+      response.msg = "无效的照片索引";
+    }
+
+    return response;
+  }
 
   /**
    * 将地理坐标(经纬度,高度)转换为三维坐标(x,y,z)
@@ -75,218 +234,75 @@ function TPano(d) {
     return new THREE.Vector3(x, y, z);
   }
 
-  //生成全景图片3D对象
-  const geometry = new THREE.SphereBufferGeometry(500, 60, 40);
-  geometry.scale(-1, 1, 1);
-  let mesh = new THREE.Mesh(geometry);
-  scene.add(mesh);
-  var texture = Array();
-  let loadTextureLoaderCount = 0;
-  loadTextureLoader(loadTextureLoaderCount);
-
-  function loadTextureLoader(i) {
-    if (d.photo[i].type == "VIDEO") {
-      el.insertAdjacentHTML(
-        "beforeend",
-        '<video id="video-' +
-          i +
-          '" loop muted style="display: none;" crossOrigin="anonymous" playsinline ><source src="' +
-          d.photo[i].url +
-          '"></video>'
-      );
-      let videoId = "video-" + i;
-      let videoDom = document.getElementById(videoId);
-      videoDom.play();
-      texture[i] = new THREE.VideoTexture(videoDom);
-      setTimeout(() => {
-        loadTextureLoaderEnd();
-      }, 2000);
-    } else {
-      texture[i] = new THREE.TextureLoader().load(
-        d.photo[i].url,
-        function () {
-          loadTextureLoaderEnd();
-        },
-        function (e) {
-          console.log(e);
-        },
-        function (err) {
-          console.error("An error happened.");
-        }
-      );
-    }
-  }
-
-  var loadTextureMsg;
-  function loadTextureLoaderEnd() {
-    let i = loadTextureLoaderCount;
-    console.log(texture);
-    texture[i].panoName = d.photo[i].name;
-    loadTextureMsg = {
-      all: d.photo.length,
-      loading: {
-        id: i + 1,
-        name: d.photo[i].name,
-      },
-      Leftover: d.photo.length - i - 1,
-    };
-    if (d.photoLoad != null) {
-      d.photoLoad(loadTextureMsg);
-    }
-    if (loadTextureLoaderCount == 0) {
-      switchPhotoN(0);
-    }
-    if (loadTextureLoaderCount < d.photo.length - 1) {
-      loadTextureLoader(++loadTextureLoaderCount);
-    }
-  }
-
-  function switchPhotoN(i) {
-    let response = {
-      status: "ERROR",
-      msg: "系统出错",
-    };
-
-    if (i < d.photo.length && i >= 0) {
-      if (loadTextureMsg.all - loadTextureMsg.Leftover >= i + 1) {
-        if (d.switchLoad != null) {
-          d.switchLoad({
-            loading: {
-              id: i + 1,
-              name: d.photo[i].name,
-            },
-            status: "end",
-          });
-        }
-        switchGo();
-      } else {
-        if (d.switchLoad != null) {
-          d.switchLoad({
-            loading: {
-              id: i + 1,
-              name: d.photo[i].name,
-            },
-            status: "loading",
-          });
-        }
-        setTimeout(switchPhotoN, 1000, i);
-      }
-
-      function switchGo() {
-        let fov;
-        if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
-          try {
-            fov = d.photo[i].fov.phone;
-          } catch (error) {
-            fov = null;
-          }
-        } else {
-          try {
-            fov = d.photo[i].fov.pc;
-          } catch (error) {
-            fov = null;
-          }
-        }
-        if (fov != null) {
-          camera.fov = fov;
-          camera.updateProjectionMatrix();
-        } else {
-          if (el.clientWidth <= 700 || el.clientWidth < el.clientHeight) {
-            fov = 90;
-          } else {
-            fov = 60;
-          }
-          camera.fov = fov;
-          camera.updateProjectionMatrix();
-        }
-        console.log(texture);
-        material = new THREE.MeshBasicMaterial({ map: texture[i] });
-        mesh.material = material;
-        // 在创建或更新mesh后添加旋转代码
-        mesh.rotation.y = (Math.PI / 180) * 160; // 170度（弧度制）
-        cleanHotspot();
-        if (d.hotspot != null) {
-          initHotspot();
-        }
-        response = {
-          status: "OK",
-          msg: "切换成功",
-        };
-      }
-    } else {
-      response.msg = "无效的照片索引";
-    }
-
-    return response;
-  }
-
   //生成热点
   let hotspotAnimate_count = 1;
   let hotspotAnimate_temp = Array();
-  function initHotspot() {
-    for (let j = 0; j < d.hotspot.length; j++) {
-      if (mesh.material.map.panoName == d.hotspot[j].source) {
-        let map = new THREE.TextureLoader().load(d.hotspot[j].imgUrl);
-
-        // 优化的材质设置，防止热点被遮住
-        let material = new THREE.SpriteMaterial({
-          map: map,
-          transparent: true,
-          depthTest: false, // 禁用深度测试
-          depthWrite: false, // 不写入深度缓冲区
-          alphaTest: 0.1,
-          blending: THREE.NormalBlending, // 使用正常混合模式
-        });
-
-        let sprite = new THREE.Sprite(material);
-
-        // 处理地理坐标热点
-        if (d.hotspot[j].geoReference) {
-          const geoPos = d.hotspot[j].geoReference;
-          const threeDPos = geoTo3D(
-            geoPos.longitude,
-            geoPos.latitude,
-            geoPos.altitude,
-            geoOrigin.longitude,
-            geoOrigin.latitude,
-            geoOrigin.altitude
-          );
-          // 补偿全景球的X轴翻转
-          threeDPos.x = -threeDPos.x;
-
-          // 将三维坐标投影到球面上，并增加向外偏移距离（从501增加到505）
-          const direction = threeDPos.normalize();
-          const spherePos = direction.multiplyScalar(505);
-
-          sprite.position.copy(spherePos);
-        }
-        // 处理传统的三维坐标热点（向后兼容）
-        else if (d.hotspot[j].position) {
-          const position = d.hotspot[j].position;
-          const direction = new THREE.Vector3(
-            position.x,
-            position.y,
-            position.z
-          ).normalize();
-
-          // 沿着方向向量增加向外偏移距离（从0.91调整到0.95）
-          sprite.position.set(
-            position.x * 0.95,
-            position.y * 0.95,
-            position.z * 0.95
-          );
-        }
-
-        sprite.scale.set(30, 30, 1);
-        sprite.renderOrder = 9999; // 增加渲染顺序优先级
-        sprite.name = "hotspot";
-
-        //绑定额外的属性
-        sprite.details = d.hotspot[j].details;
-        //绑定跳转属性
-        sprite.jumpTo = d.hotspot[j].jumpTo ? true : false;
-        scene.add(sprite);
+  function initHotspot(img_id) {
+    for (let j = 0; j < dobj.hotspot.length; j++) {
+      // 只初始化当前照片的热点
+      if (dobj.hotspot[j].details?.img_id == img_id) {
+        continue;
       }
+      let map = new THREE.TextureLoader().load(dobj.hotspot[j].imgUrl);
+
+      // 优化的材质设置，防止热点被遮住
+      let material = new THREE.SpriteMaterial({
+        map: map,
+        transparent: true,
+        depthTest: false, // 禁用深度测试
+        depthWrite: false, // 不写入深度缓冲区
+        alphaTest: 0.1,
+        blending: THREE.NormalBlending, // 使用正常混合模式
+      });
+
+      let sprite = new THREE.Sprite(material);
+
+      // 处理地理坐标热点
+      if (dobj.hotspot[j].geoReference) {
+        const geoPos = dobj.hotspot[j].geoReference;
+        const threeDPos = geoTo3D(
+          geoPos.longitude,
+          geoPos.latitude,
+          geoPos.altitude,
+          geoOrigin.longitude,
+          geoOrigin.latitude,
+          geoOrigin.altitude
+        );
+        // 补偿全景球的X轴翻转
+        threeDPos.x = -threeDPos.x;
+
+        // 将三维坐标投影到球面上，并增加向外偏移距离（从501增加到505）
+        const direction = threeDPos.normalize();
+        const spherePos = direction.multiplyScalar(505);
+
+        sprite.position.copy(spherePos);
+      }
+      // 处理传统的三维坐标热点（向后兼容）
+      else if (dobj.hotspot[j].position) {
+        const position = dobj.hotspot[j].position;
+        const direction = new THREE.Vector3(
+          position.x,
+          position.y,
+          position.z
+        ).normalize();
+
+        // 沿着方向向量增加向外偏移距离（从0.91调整到0.95）
+        sprite.position.set(
+          position.x * 0.95,
+          position.y * 0.95,
+          position.z * 0.95
+        );
+      }
+
+      sprite.scale.set(30, 30, 1);
+      sprite.renderOrder = 9999; // 增加渲染顺序优先级
+      sprite.name = "hotspot";
+
+      //绑定额外的属性
+      sprite.details = dobj.hotspot[j].details;
+      //绑定跳转属性
+      sprite.jumpTo = dobj.hotspot[j].jumpTo ? true : false;
+      scene.add(sprite);
     }
 
     for (let i = 0; i < scene.children.length; i++) {
@@ -348,11 +364,11 @@ function TPano(d) {
 
   //镜头自由旋转
   let anglexoz = -90;
-  var rotateAnimateController = d.rotateAnimateController;
+  var rotateAnimateController = dobj.rotateAnimateController;
   function rotateAnimate() {
     if (
       rotateAnimateController == true &&
-      d.DeviceOrientationControls == false
+      dobj.DeviceOrientationControls == false
     ) {
       anglexoz += 0.1;
       if (anglexoz > 360) {
@@ -366,7 +382,7 @@ function TPano(d) {
   setInterval(rotateAnimate, 1000 / 60);
 
   el.addEventListener("pointerdown", function () {
-    if (d.MouseController) {
+    if (dobj.MouseController) {
       rotateAnimateController = false;
     }
   });
@@ -379,7 +395,7 @@ function TPano(d) {
     document.addEventListener(
       "touchstart",
       function (event) {
-        if (!d.MouseController) {
+        if (!dobj.MouseController) {
           return;
         }
         if (event.touches.length == 2) {
@@ -400,7 +416,7 @@ function TPano(d) {
     document.addEventListener(
       "touchmove",
       function (event) {
-        if (!d.MouseController) {
+        if (!dobj.MouseController) {
           return;
         }
         event.preventDefault();
@@ -443,7 +459,7 @@ function TPano(d) {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     function onMouseMove(event) {
-      if (!d.MouseController) {
+      if (!dobj.MouseController) {
         return;
       }
       mouse.x = (event.clientX / el.clientWidth) * 2 - 1;
@@ -453,14 +469,14 @@ function TPano(d) {
 
     let clientX, clientY;
     el.addEventListener("pointerdown", function (event) {
-      if (!d.MouseController) {
+      if (!dobj.MouseController) {
         return;
       }
       clientX = event.clientX;
       clientY = event.clientY;
     });
     el.addEventListener("pointerup", function (event) {
-      if (!d.MouseController) {
+      if (!dobj.MouseController) {
         return;
       }
       var distance = Math.sqrt(
@@ -477,9 +493,15 @@ function TPano(d) {
       const intersects = raycaster.intersectObjects(scene.children);
       for (let i = 0; i < intersects.length; i++) {
         const item = intersects[i].object;
-        if (d.debug == true && item.jumpTo == true && item.name == "hotspot") {
+        if (
+          dobj.debug == true &&
+          item.jumpTo == true &&
+          item.name == "hotspot"
+        ) {
           //点击的热点，判断是否有跳转
-          console.warn("点击了热点：", intersects[i].object.details);
+          if (dobj.onHotspotClick != null) {
+            dobj.onHotspotClick(intersects[i].object.details);
+          }
         }
       }
     }
@@ -492,7 +514,7 @@ function TPano(d) {
     lat = THREE.MathUtils.radToDeg(camera.rotation.x);
 
     function onPointerDown(event) {
-      if (!d.MouseController) {
+      if (!dobj.MouseController) {
         return;
       }
 
@@ -511,7 +533,7 @@ function TPano(d) {
     }
 
     function onPointerMove(event) {
-      if (!d.MouseController) {
+      if (!dobj.MouseController) {
         return;
       }
       if (event.isPrimary === false) return;
@@ -530,7 +552,7 @@ function TPano(d) {
     }
 
     function onPointerUp() {
-      if (!d.MouseController) {
+      if (!dobj.MouseController) {
         return;
       }
       if (event.isPrimary === false) return;
@@ -540,7 +562,7 @@ function TPano(d) {
     }
 
     function onDocumentMouseWheel(event) {
-      if (!d.MouseController) {
+      if (!dobj.MouseController) {
         return;
       }
       const fov = camera.fov + event.deltaY * 0.05;
@@ -563,15 +585,15 @@ function TPano(d) {
 
   //渲染
   function render() {
-    if (d.DeviceOrientationControls == true) {
+    if (dobj.DeviceOrientationControls == true) {
       if (
         camera.rotation._x == -1.5707963267948966 &&
         camera.rotation._y == 0 &&
         camera.rotation._z == 0
       ) {
-        d.gyroSport(false);
+        dobj.gyroSport(false);
       } else {
-        d.gyroSport(true);
+        dobj.gyroSport(true);
       }
       devicecontrol.update();
     }
@@ -600,21 +622,21 @@ function TPano(d) {
      * 全景照片切换函数
      */
     switchPhoto: function switchPhoto(i) {
-      return switchPhotoN(i - 1);
+      return switchPhotoN(i);
     },
 
     /**
      * 切换体感
      */
     switchGyro: function switchGyro(e) {
-      d.DeviceOrientationControls = e;
+      dobj.DeviceOrientationControls = e;
     },
 
     /**
      * 切换鼠标控制
      */
     seitchMouseController: function seitchMouseController(e) {
-      d.MouseController = e;
+      dobj.MouseController = e;
     },
 
     /**
